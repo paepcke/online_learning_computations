@@ -55,6 +55,7 @@ import math
 import numpy
 import os
 import re
+import string
 import sys
 
 from mysqldb import MySQLDB
@@ -73,12 +74,13 @@ class EngagementComputer(object):
     # Time duration counted for any non-video event (minutes):
     NON_VIDEO_EVENT_DURATION = 5
     
-    def __init__(self, coursesStartYearsArr, dbHost, dbName, tableName, mySQLUser=None, mySQLPwd=None):
+    def __init__(self, coursesStartYearsArr, dbHost, dbName, tableName, mySQLUser=None, mySQLPwd=None, courseToProfile=None):
         self.dbHost = dbHost
         self.dbName = dbName
         self.tableName = tableName
         self.mySQLUser = mySQLUser
         self.mySQLPwd  = mySQLPwd
+        self.courseToProfile = courseToProfile
         self.coursesStartYearsArr = coursesStartYearsArr
         
         if mySQLUser is None:
@@ -100,7 +102,6 @@ class EngagementComputer(object):
         
     def run(self):
         self.studentSessionsDict   = {}
-        self.sessions         = []
         self.currStudent      = None
         self.currCourse       = None
         self.timeSpentThisSession = 0
@@ -112,7 +113,14 @@ class EngagementComputer(object):
         TIME_INDEX      = 2
         IS_VIDEO_INDEX  = 3
         
-        for activityRecord in self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, time;' % self.tableName):
+        if self.courseToProfile is None:
+            # Profile all courses:
+            queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, time;' % 
+                                          self.tableName)
+        else:
+            queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY time;' % 
+                                          (self.tableName, self.courseToProfile))
+        for activityRecord in queryIterator:
             currEvent = {'course_display_name' : activityRecord[COURSE_INDEX],
                          'anon_screen_name'    : activityRecord[STUDENT_INDEX],
                          'eventDateTime'       : activityRecord[TIME_INDEX], 
@@ -138,15 +146,17 @@ class EngagementComputer(object):
                 continue
             
             if currEvent['course_display_name'] != self.currCourse:
-                # Previous event was last event of its course:
-                # Account for the last session of current student in the current
-                # class:
-                self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession)
-                self.sessionStartTime = currEvent['eventDateTime']
-                self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
-                # Start a new course:
+                # Previous event was last event of its course
+                # Is this new event processable? I.e. does it have
+                # all the info we need? If not, skip this event: 
                 if len(currEvent['anon_screen_name']) > 0 and\
                    len(currEvent['course_display_name']) > 0:
+                    # Account for the last session of current student in the current
+                    # class:
+                    self.wrapUpSession(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
+                    self.sessionStartTime = currEvent['eventDateTime']
+                    self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+                    # Start a new course:
                     self.currStudent = currEvent['anon_screen_name']
                     self.currCourse  = currEvent['course_display_name']
                     self.sessionStartTime = currEvent['eventDateTime']
@@ -163,9 +173,17 @@ class EngagementComputer(object):
                 self.wrapUpStudent(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
                 self.currStudent = currEvent['anon_screen_name']
                 prevEvent = currEvent
+                continue
             else:
                 # Same course and student as previous event:
                 self.addTimeToSession(prevEvent['eventDateTime'], currEvent['eventDateTime'], prevEvent['isVideo'], self.timeSpentThisSession)
+                prevEvent = currEvent;
+                continue
+        # Wrap up the last class:
+        self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession)
+        self.sessionStartTime = currEvent['eventDateTime']
+        self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+
 
 
     def addTimeToSession(self, dateTimePrevEvent, dateTimeCurrEvent, isVideo, timeSpentSoFar):
@@ -228,59 +246,71 @@ class EngagementComputer(object):
         @param studentSessionsDict:
         @type studentSessionsDict:
         '''
-        #**************
-        #print('%s: %s' % (courseName, str(studentSessionsDict)))
-        #**************        
-        # Get start and end dates of this class:
-        (startDate,endDate) = self.getCourseRuntime(courseName)
-        #*****
-        #print ("Course: %s: %s to %s" % (courseName, str(startDate), str(endDate)))
-        #*****
-        if startDate is None or endDate is None:
-            return False
-        if endDate < startDate:
-            sys.stderr.write("%s: endDate (%s) < startDate(%s)\n" % (courseName, endDate, startDate))
-            return False
-        # Partition into weeks:
-        courseDurationDelta = endDate - startDate;
-        courseDays = courseDurationDelta.days
-        if courseDays < 7:
-            sys.stderr.write("%s: lasted less than one week (endDate %s; startDate%s)\n" % (courseName, endDate, startDate))
-            return False
-        numWeeks = int(math.ceil(courseDays / 7))
-        oneToTwentyMin = 0
-        twentyoneToSixtyMin = 0
-        greaterSixtyMin = 0
-        
-        totalEffortAllStudents = 0
-        totalStudentSessions    = 0
-        
-        for weekNum in range(numWeeks):
-            weekStart = startDate + weekNum * datetime.timedelta(weeks=1)
-            weekEnd   = weekStart + datetime.timedelta(weeks=1)
-            for student in self.studentSessionsDict.keys():
-                thisWeekThisStudentSessionList = []
-                dateAndSessionLenArr = self.studentSessionsDict[student]
-                for (eventDateTime, engageDurationMins) in dateAndSessionLenArr:
-                    if eventDateTime < weekStart or\
-                       eventDateTime > weekEnd or\
-                       engageDurationMins == 0:
+        try:
+            # Get start and end dates of this class:
+            (startDate,endDate) = self.getCourseRuntime(courseName)
+            if startDate is None or endDate is None:
+                return False
+            if endDate < startDate:
+                sys.stderr.write("%s: endDate (%s) < startDate(%s)\n" % (courseName, endDate, startDate))
+                return False
+            # Partition into weeks:
+            courseDurationDelta = endDate - startDate;
+            courseDays = courseDurationDelta.days
+            if courseDays < 7:
+                sys.stderr.write("%s: lasted less than one week (endDate %s; startDate%s)\n" % (courseName, endDate, startDate))
+                return False
+            numWeeks = int(math.ceil(courseDays / 7))
+            oneToTwentyMin = 0
+            twentyoneToSixtyMin = 0
+            greaterSixtyMin = 0
+            
+            totalEffortAllStudents = 0
+            totalStudentSessions    = 0
+            
+            for weekNum in range(numWeeks):
+                weekStart = startDate + weekNum * datetime.timedelta(weeks=1)
+                weekEnd   = weekStart + datetime.timedelta(weeks=1)
+                for student in self.studentSessionsDict.keys():
+                    thisWeekThisStudentSessionList = []
+                    dateAndSessionLenArr = self.studentSessionsDict[student]
+                    for (eventDateTime, engageDurationMins) in dateAndSessionLenArr:
+                        if eventDateTime < weekStart or\
+                           eventDateTime > weekEnd or\
+                           engageDurationMins == 0:
+                            continue
+                        thisWeekThisStudentSessionList.append(engageDurationMins)
+                    if len(thisWeekThisStudentSessionList) == 0:
                         continue
-                    thisWeekThisStudentSessionList.append(engageDurationMins)
-                # Got all session lengths of this student this week:
-                studentMedianThisWeek = numpy.median(thisWeekThisStudentSessionList)
-                if studentMedianThisWeek > 0:
-                    totalStudentSessions += 1
-                if studentMedianThisWeek < 20:
-                    oneToTwentyMin += 1
-                elif studentMedianThisWeek < 60:
-                    twentyoneToSixtyMin += 1
-                else:
-                    greaterSixtyMin += 1
-                totalEffortAllStudents += sum(thisWeekThisStudentSessionList)
-                    
-        self.classStats[courseName] = (totalStudentSessions, totalEffortAllStudents, oneToTwentyMin, twentyoneToSixtyMin, greaterSixtyMin) 
-
+                    # Got all session lengths of this student this week:
+                    totalStudentSessions += len(thisWeekThisStudentSessionList)
+                    studentMedianThisWeek = numpy.median(thisWeekThisStudentSessionList)
+                    if studentMedianThisWeek < 20:
+                        oneToTwentyMin += 1
+                    elif studentMedianThisWeek < 60:
+                        twentyoneToSixtyMin += 1
+                    else:
+                        greaterSixtyMin += 1
+                        
+                    totalEffortAllStudents += sum(thisWeekThisStudentSessionList)
+#                     #***************
+#                     if self.currCourse == "Engineering/Solar/Fall2013":
+#                         print('%s:%s (%s): Med,one2Twen,twen2Hr,grtHr,totalEff: %s, %s, %s, %s, %s' % (
+#                                                                                                     student,
+#                                                                                                     self.currCourse,
+#                                                                                                     numWeeks,
+#                                                                                                     studentMedianThisWeek,
+#                                                                                                     oneToTwentyMin,
+#                                                                                                     twentyoneToSixtyMin,
+#                                                                                                     greaterSixtyMin,
+#                                                                                                     totalEffortAllStudents))
+#                     #***************
+                        
+            self.classStats[courseName] = (totalStudentSessions, totalEffortAllStudents, oneToTwentyMin, twentyoneToSixtyMin, greaterSixtyMin)
+        finally:
+            # Start a new sessions record for
+            # the next course we'll tackle: 
+            self.studentSessionsDict = {}
         return True
         
     def getCourseRuntime(self, courseName, testOnly=False):
@@ -304,15 +334,20 @@ class EngagementComputer(object):
         return EngagementComputer.VIDEO_EVENT_DURATION # minutes
 
 if __name__ == '__main__':
-    comp = EngagementComputer([2013], 'localhost', 'Misc', 'Activities', mySQLUser='paepcke', mySQLPwd=None)
+    if len(sys.argv) > 1:
+        courseToProfile = sys.argv[1]
+    else:
+        courseToProfile = None
+    comp = EngagementComputer([2013], 'localhost', 'Misc', 'Activities', mySQLUser='paepcke', mySQLPwd=None, courseToProfile=courseToProfile)
     comp.run()
-    with open('/tmp/engageTest.csv', 'w') as fd:
+    if courseToProfile is None:
+        outFile = '/tmp/engagementAllCourses.csv'
+    else:
+        courseNameNoSpaces = string.replace(string.replace(courseToProfile,' ',''), '/', '_')
+        outFile = '/tmp/engagement%s.csv' % courseNameNoSpaces
+    with open(outFile, 'w') as fd:
         fd.write('TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
         for className in comp.classStats.keys():
             output = className + ',' + re.sub(r'[\s()]','',str(comp.classStats[className]))
             fd.write(output + '\n') 
-    
-    #******
-    #print(str(comp.classStats))
-    #******    
     
