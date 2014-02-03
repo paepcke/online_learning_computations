@@ -18,6 +18,30 @@ Example rows:
 | Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | hide_transcript | 2013-07-20 22:57:28 | 0 |
 | Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | play_video | 2013-07-20 22:59:36      | 1 |
 
+
+Also assumes availability of the following DB table:
+
+mysql> DESCRIBE CourseRuntimes;
++---------------------+--------------+------+-----+---------+-------+
+| Field               | Type         | Null | Key | Default | Extra |
++---------------------+--------------+------+-----+---------+-------+
+| course_display_name | varchar(255) | YES  |     | NULL    |       |
+| course_start_date   | datetime     | YES  |     | NULL    |       |
+| course_end_date     | datetime     | YES  |     | NULL    |       |
++---------------------+--------------+------+-----+---------+-------+
+
+Example rows:
+mysql> SELECT * FROM CourseRuntimes;
++-------------------------------------------------------+---------------------+---------------------+
+| course_display_name                                   | course_start_date   | course_end_date     |
++-------------------------------------------------------+---------------------+---------------------+
+| Medicine/SciWrite/Fall2013                            | 2013-11-10 06:45:16 | 2013-11-17 06:56:35 |
+| Engineering/EE-222/Applied_Quantum_Mechanics_I        | 2013-11-10 06:54:21 | 2013-11-17 06:54:21 |
+| Engineering/Solar/Fall2013                            | 2013-11-10 06:44:13 | 2013-11-17 07:00:26 |
+| Engineering/CS144/Introduction_to_Computer_Networking | 2013-11-10 06:52:22 | 2013-11-17 06:58:49 |
++-------------------------------------------------------+---------------------+---------------------+
+4 rows in set (0.00 sec)
+
 Grouped by course, then student, and ordered by time.
 See scripts/prepEngagementAnalysis.sh for how to build
 that table:
@@ -28,7 +52,7 @@ import datetime
 import getpass
 import os
 
-from json_to_relation.mysqldb import MySQLDB
+from mysqldb import MySQLDB
 
 
 class EngagementComputer(object):
@@ -54,11 +78,11 @@ class EngagementComputer(object):
             # Try to get it from .ssh/mysql file of user
             try:
                 homeDir = os.path.expanduser('~' + mySQLUser)
-                pwdFile = os.path.join(homeDir,'mysql')
+                pwdFile = os.path.join(homeDir,'.ssh/mysql')
                 with open(pwdFile, 'r') as fd:
                     mySQLPwd = fd.readline()
             except Exception:
-                pass
+                mySQLPwd = ''
         # Place to hold all stats for one class
         self.classStats = {}
         self.db = MySQLDB(host=dbHost, user=mySQLUser, passwd=mySQLPwd, db=dbName)
@@ -70,7 +94,6 @@ class EngagementComputer(object):
         currCourse      = None
         prevEvent       = None
         timeSpent       = 0
-        prevActivityRec = None
          
         COURSE_INDEX    = 0
         STUDENT_INDEX   = 1
@@ -80,42 +103,45 @@ class EngagementComputer(object):
         for activityRecord in self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s;' % self.tableName):
             currEvent = {'course_display_name' : activityRecord[COURSE_INDEX],
                          'anon_screen_name'    : activityRecord[STUDENT_INDEX],
-                         'eventDateTime'       : datetime.datetime.strptime(activityRecord[TIME_INDEX], 
-                                                                  '%Y-%m-%d %H:%M:%S'),
+                         'eventDateTime'       : activityRecord[TIME_INDEX], 
                          'isVideo'             : activityRecord[IS_VIDEO_INDEX]}
             if prevEvent is None:
                 # First event of this course:
-                currStudent = currEvent.anon_screen_name
-                currCourse  = currEvent.course_display_name
-                prevEvent = currEvent
+                if len(currEvent['anon_screen_name']) > 0 and\
+                   len(currEvent['course_display_name']) > 0:
+                    currStudent = currEvent['anon_screen_name']
+                    currCourse  = currEvent['course_display_name']
+                    prevEvent = currEvent
                 continue
             
             if currEvent['course_display_name'] != currCourse:
                 # Previous event was last event of its course:
-                self.wrapUpCourse()
+                self.wrapUpCourse(studentSessionsDict)
                 # Start a new course:
-                currCourse = currEvent['course_display_name']
-                currStudent = currEvent.anon_screen_name
-                prevEvent = currEvent;
+                if len(currEvent['anon_screen_name']) > 0 and\
+                   len(currEvent['course_display_name']) > 0:
+                    currStudent = currEvent['anon_screen_name']
+                    currCourse  = currEvent['course_display_name']
+                    prevEvent = currEvent
                 continue
             # Steady state: Next event in same course as
             # previous event:
             if currEvent['anon_screen_name'] != currStudent:
                 # Same course as prev event, but different student:
-                timeLastEvent = self.wrapUpStudent(prevEvent['anon_screen_name'],
-                                                   prevEvent['eventDateTime'],
-                                                   prevEvent['isVideo'],
-                                                   timeSpent)
-                timeSpent += timeLastEvent
+                timeSpent = self.wrapUpStudent(prevEvent['anon_screen_name'],
+                                               prevEvent['eventDateTime'],
+                                               prevEvent['isVideo'],
+                                               timeSpent)
                 sessions.append(timeSpent)
                 studentSessionsDict[currStudent] = sessions
                 currStudent = currEvent['anon_screen_name']
                 sessions = []
+                timeSpent = 0
                 prevEvent = currEvent
             else:
                 # Same course and student as previous event:
-                (timeSpent,sessionOver) = self.addTimeToSession(prevEvent.eventDateTime, currEvent.eventDateTime, prevEvent.isVideo, timeSpent)
-                timeSpent += timeLastEvent
+                (newTimeSpent,sessionOver) = self.addTimeToSession(prevEvent['eventDateTime'], currEvent['eventDateTime'], prevEvent['isVideo'], timeSpent)
+                timeSpent = newTimeSpent
                 if sessionOver:
                     sessions.append(timeSpent)
 
@@ -130,7 +156,7 @@ class EngagementComputer(object):
             sessionOver = False
         return (newTimeSpent, sessionOver)
 
-    def wrapUpStudent(self, studentSessions, studentAnon, lastStudentEventTime, wasVideo, timeSpentSoFar):
+    def wrapUpStudent(self, studentAnon, lastStudentEventTime, wasVideo, timeSpentSoFar):
         '''
         Last event for a student in one course
         @param studentSessions:
@@ -144,8 +170,8 @@ class EngagementComputer(object):
         '''
         # Account for this last session of this student in the current
         # class:
-        sessions = self.wrapUpSession(studentSessions, wasVideo, timeSpentSoFar)
-        return sessions
+        newTimeSpentSoFar = self.wrapUpSession(wasVideo, timeSpentSoFar)
+        return newTimeSpentSoFar
         
     
     def wrapUpSession(self, wasVideo, timeSpentSoFar):
@@ -162,12 +188,12 @@ class EngagementComputer(object):
         @type timeSpentSoFar:
         '''
         if wasVideo:
-            timeSpentThisSession = timeSpentSoFar + self.getVideoLength()
+            newTimeSpentSoFar = timeSpentSoFar + self.getVideoLength()
         else:
-            timeSpentThisSession = timeSpentSoFar + EngagementComputer.NON_VIDEO_EVENT_DURATION
-        return timeSpentThisSession
+            newTimeSpentSoFar = timeSpentSoFar + EngagementComputer.NON_VIDEO_EVENT_DURATION
+        return newTimeSpentSoFar
             
-    def wrapUpClass(self, studentSessionsDict):
+    def wrapUpCourse(self, studentSessionsDict):
         '''
         Called when all students of one class have been
         processed. This method receives a dict that maps
@@ -178,7 +204,8 @@ class EngagementComputer(object):
         @param studentSessionsDict:
         @type studentSessionsDict:
         '''
-        print("Would bin a class")
+        #****print("Would bin a class")
+        print(str(studentSessionsDict))
         
             
     def getVideoLength(self):
