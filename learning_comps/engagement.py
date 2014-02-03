@@ -58,6 +58,12 @@ import re
 import string
 import sys
 
+# Add json_to_relation source dir to $PATH
+# for duration of this execution:
+source_dir = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../json_to_relation/json_to_relation")]
+source_dir.extend(sys.path)
+sys.path = source_dir
+
 from mysqldb import MySQLDB
 
 
@@ -82,6 +88,10 @@ class EngagementComputer(object):
         self.mySQLPwd  = mySQLPwd
         self.courseToProfile = courseToProfile
         self.coursesStartYearsArr = coursesStartYearsArr
+        # To keep track of which course runtimes
+        # we already output an error msg for,
+        # b/c we didn't find it:
+        self.runtimesNotFoundCourses = []
         
         if mySQLUser is None:
             self.mySQLUser = getpass.getuser()
@@ -107,6 +117,7 @@ class EngagementComputer(object):
         self.timeSpentThisSession = 0
         self.sessionStartTime = 0
         prevEvent       = None
+        currEvent       = None
          
         COURSE_INDEX    = 0
         STUDENT_INDEX   = 1
@@ -180,9 +191,10 @@ class EngagementComputer(object):
                 prevEvent = currEvent;
                 continue
         # Wrap up the last class:
-        self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession)
-        self.sessionStartTime = currEvent['eventDateTime']
-        self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+        if currEvent is not None:
+            self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession)
+            self.sessionStartTime = currEvent['eventDateTime']
+            self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
 
 
 
@@ -297,7 +309,7 @@ class EngagementComputer(object):
 #                     if self.currCourse == "Engineering/Solar/Fall2013":
 #                         print('%s:%s (%s): Med,one2Twen,twen2Hr,grtHr,totalEff: %s, %s, %s, %s, %s' % (
 #                                                                                                     student,
-#                                                                                                     self.currCourse,
+#                                                                                                     self.currCourdse,
 #                                                                                                     numWeeks,
 #                                                                                                     studentMedianThisWeek,
 #                                                                                                     oneToTwentyMin,
@@ -314,6 +326,11 @@ class EngagementComputer(object):
         return True
         
     def getCourseRuntime(self, courseName, testOnly=False):
+        
+        # Already provided an error msg for this course name?
+        if courseName in self.runtimesNotFoundCourses:
+            return(None,None)
+        
         runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db='Misc')
         if testOnly:
             # Just ensure that the 'CourseRuntimes' table exists so
@@ -328,26 +345,31 @@ class EngagementComputer(object):
             return (runtimes[0], runtimes[1])
         # No start/end times found for this course:
         sys.stderr.write("Did not find start/end times for class '%s'\n" % courseName)
+        self.runtimesNotFoundCourses.append(courseName)
         return (None,None)
     
     def getVideoLength(self):
         return EngagementComputer.VIDEO_EVENT_DURATION # minutes
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        courseToProfile = sys.argv[1]
+    if len(sys.argv) < 2:
+        sys.stderr.write('Usage: engagement.py <year as YYYY [courseName]\n')
+        sys.exit()
+    yearToProfile = sys.argv[1]
+    if len(sys.argv) > 2:
+        courseToProfile = sys.argv[2]
     else:
         courseToProfile = None
-    comp = EngagementComputer([2013], 'localhost', 'Misc', 'Activities', mySQLUser='paepcke', mySQLPwd=None, courseToProfile=courseToProfile)
+    comp = EngagementComputer([int(yearToProfile)], 'localhost', 'Misc', 'Activities', mySQLUser='paepcke', mySQLPwd=None, courseToProfile=courseToProfile)
     comp.run()
     if courseToProfile is None:
         outFile = '/tmp/engagementAllCourses.csv'
     else:
         courseNameNoSpaces = string.replace(string.replace(courseToProfile,' ',''), '/', '_')
-        outFile = '/tmp/engagement%s.csv' % courseNameNoSpaces
-    with open(outFile, 'w') as fd:
-        fd.write('TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
-        for className in comp.classStats.keys():
-            output = className + ',' + re.sub(r'[\s()]','',str(comp.classStats[className]))
-            fd.write(output + '\n') 
-    
+        outFile = '/tmp/engagement_%s.csv' % courseNameNoSpaces
+    if len(comp.classStats.keys()) > 0:
+        with open(outFile, 'w') as fd:
+            fd.write('TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
+            for className in comp.classStats.keys():
+                output = className + ',' + re.sub(r'[\s()]','',str(comp.classStats[className]))
+                fd.write(output + '\n') 
