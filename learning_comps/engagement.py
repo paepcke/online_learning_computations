@@ -95,6 +95,8 @@ class EngagementComputer(object):
         # Place to hold all stats for one class
         self.classStats = {}
         self.db = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db=dbName)
+        # Ensure that the CourseRuntimes table exists:
+        self.getCourseRuntime('fakename', testOnly=True)        
         
     def run(self):
         self.studentSessionsDict   = {}
@@ -281,8 +283,17 @@ class EngagementComputer(object):
 
         return True
         
-    def getCourseRuntime(self, courseName):
+    def getCourseRuntime(self, courseName, testOnly=False):
         runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db='Misc')
+        if testOnly:
+            # Just ensure that the 'CourseRuntimes' table exists so
+            # that we can fail early:
+            try:
+                runtimeLookupDb.query("SELECT course_start_date, course_end_date FROM CourseRuntimes LIMIT 1;")
+                return
+            except Exception as e:
+                raise ValueError('Cannot read CourseRuntimes table: %s' % `e`)
+            
         for runtimes in runtimeLookupDb.query("SELECT course_start_date, course_end_date FROM CourseRuntimes WHERE course_display_name = '%s';" % courseName):
             return (runtimes[0], runtimes[1])
         # No start/end times found for this course:
