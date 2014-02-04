@@ -112,6 +112,8 @@ class EngagementComputer(object):
         
     def run(self):
         self.studentSessionsDict   = {}
+        # For saving all sessions for all students across all classes:
+        self.allStudentsDicts = {}
         self.currStudent      = None
         self.currCourse       = None
         self.timeSpentThisSession = 0
@@ -211,7 +213,7 @@ class EngagementComputer(object):
             self.wrapUpSession(self.currStudent, isVideo, timeSpentSoFar)
         else:
             newTimeSpent = timeSpentSoFar + minutes
-            self.timeSpentThisSession += newTimeSpent
+            self.timeSpentThisSession = newTimeSpent
 
     def wrapUpStudent(self, anonStudent, wasVideo, timeSpentSoFar):
         '''
@@ -328,8 +330,10 @@ class EngagementComputer(object):
 #                                                                                                     totalEffortAllStudents))
 #                     #***************
                         
-            self.classStats[courseName] = (totalStudentSessions, totalEffortAllStudents, oneToTwentyMin, twentyoneToSixtyMin, greaterSixtyMin)
+            self.classStats[courseName] = (totalStudentSessions, int(round(totalEffortAllStudents)), oneToTwentyMin, twentyoneToSixtyMin, greaterSixtyMin)
         finally:
+            # Save this course's record of all student sessions
+            self.allStudentsDicts[courseName] = self.studentSessionsDict
             # Start a new sessions record for
             # the next course we'll tackle: 
             self.studentSessionsDict = {}
@@ -361,14 +365,29 @@ class EngagementComputer(object):
             # No start/end times found for this course:
             sys.stderr.write("Did not find start/end times for class '%s'\n" % courseName)
             self.runtimesNotFoundCourses.append(courseName)
+            return (None,None)
         except Exception as e:
             sys.stderr.write("While attempting lookup of course start/end times: '%s'\n" % `e`)
             return (None,None)
     
     def getVideoLength(self):
         return EngagementComputer.VIDEO_EVENT_DURATION # minutes
+    
+    def allDataIterator(self):
+        for courseName in self.allStudentsDicts.keys():
+            sessionsByStudentDict = self.allStudentsDicts[courseName]
+            for student in sessionsByStudentDict.keys():
+                sessionsArr = sessionsByStudentDict[student]
+                for dateMinutesTuple in sessionsArr:
+                    yield '%s,%s,%s,%s,%d\n' % (courseName,
+                                                student,
+                                                dateMinutesTuple[0].date(),
+                                                dateMinutesTuple[0].time(),
+                                                dateMinutesTuple[1])
 
 if __name__ == '__main__':
+    
+    # -------------- Manage Input Parameters ---------------
     if len(sys.argv) < 2:
         sys.stderr.write('Usage: engagement.py <year as YYYY [courseName]\n')
         sys.exit()
@@ -377,16 +396,34 @@ if __name__ == '__main__':
         courseToProfile = sys.argv[2]
     else:
         courseToProfile = None
+        
+    # -------------- Run the Computation ---------------
     comp = EngagementComputer([int(yearToProfile)], 'localhost', 'Misc', 'Activities', mySQLUser='paepcke', mySQLPwd=None, courseToProfile=courseToProfile)
     comp.run()
+    
+    # -------------- Output Results to Disk ---------------
     if courseToProfile is None:
-        outFile = '/tmp/engagementAllCourses.csv'
+        # Analysis was requested for all courses.
+        # The summary goes into one file:
+        outFileSummary = '/tmp/engagementAllCourses_summary.csv'
+        # File for all student engagement numbers:
+        outFileAll     = '/tmp/engagementAllCourses_allData.csv'
     else:
+        # Analysis was requested for a single course.
+        # The summary goes into /tmp/engagement_<courseNameNoSpacesOrSlashes>_summary.csv:
         courseNameNoSpaces = string.replace(string.replace(courseToProfile,' ',''), '/', '_')
-        outFile = '/tmp/engagement_%s.csv' % courseNameNoSpaces
+        outFileSummary = '/tmp/engagement_%s_summary.csv' % courseNameNoSpaces
+        outFileAll     = '/tmp/engagement_%s_allData.csv' % courseNameNoSpaces
+    # For classes that actually have results: write them:
     if len(comp.classStats.keys()) > 0:
-        with open(outFile, 'w') as fd:
+        with open(outFileSummary, 'w') as fd:
             fd.write('TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
             for className in comp.classStats.keys():
                 output = className + ',' + re.sub(r'[\s()]','',str(comp.classStats[className]))
                 fd.write(output + '\n') 
+        #with sys.stdout as fd:
+        with open(outFileAll, 'w') as fd:
+            fd.write('Course,Student,Date,Time,SessionLength\n')
+            for csvSessionRecord in comp.allDataIterator():
+                fd.write(csvSessionRecord)
+                
