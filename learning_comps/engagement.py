@@ -101,7 +101,7 @@ class EngagementComputer(object):
                 homeDir = os.path.expanduser('~' + mySQLUser)
                 pwdFile = os.path.join(homeDir,'.ssh/mysql')
                 with open(pwdFile, 'r') as fd:
-                    self.mySQLPwd = fd.readline()
+                    self.mySQLPwd = fd.readline().strip()
             except Exception:
                 self.mySQLPwd = ''
         # Place to hold all stats for one class
@@ -204,7 +204,7 @@ class EngagementComputer(object):
         timeDelta = dateTimeCurrEvent - dateTimePrevEvent
         minutes   = round(timeDelta.seconds/60.0)
         if minutes > EngagementComputer.SESSION_TIMEOUT:
-            self.wrapUpSession(isVideo, timeSpentSoFar)
+            self.wrapUpSession(self.currStudent, isVideo, timeSpentSoFar)
         else:
             newTimeSpent = timeSpentSoFar + minutes
             self.timeSpentThisSession += newTimeSpent
@@ -261,7 +261,9 @@ class EngagementComputer(object):
         try:
             # Get start and end dates of this class:
             (startDate,endDate) = self.getCourseRuntime(courseName)
-            if startDate is None or endDate is None:
+            if startDate is None or endDate is None or\
+                not isinstance(startDate, datetime.datetime) or\
+                not isinstance(endDate, datetime.datetime):
                 return False
             if endDate < startDate:
                 sys.stderr.write("%s: endDate (%s) < startDate(%s)\n" % (courseName, endDate, startDate))
@@ -287,6 +289,10 @@ class EngagementComputer(object):
                     thisWeekThisStudentSessionList = []
                     dateAndSessionLenArr = self.studentSessionsDict[student]
                     for (eventDateTime, engageDurationMins) in dateAndSessionLenArr:
+                        if not isinstance(eventDateTime, datetime.datetime):
+                            sys.stderr.write("Expected datetime, but got %s ('%s') from dateAndSessionLenArr.\n" % 
+                                             (type(eventDateTime), str(eventDateTime)))
+                            continue
                         if eventDateTime < weekStart or\
                            eventDateTime > weekEnd or\
                            engageDurationMins == 0:
@@ -331,7 +337,11 @@ class EngagementComputer(object):
         if courseName in self.runtimesNotFoundCourses:
             return(None,None)
         
-        runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db='Misc')
+        try:
+            runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db='Misc')
+        except Exception as e:
+            sys.stderr.write('While looking up course start/end times in getCourseRuntime(): %s\n' % `e`)
+            return
         if testOnly:
             # Just ensure that the 'CourseRuntimes' table exists so
             # that we can fail early:
