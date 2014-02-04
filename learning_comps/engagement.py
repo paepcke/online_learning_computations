@@ -143,7 +143,11 @@ class EngagementComputer(object):
                     self.currStudent = currEvent['anon_screen_name']
                     self.currCourse  = currEvent['course_display_name']
                     # Get start and end dates of this class:
-                    (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
+                    try:
+                        (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
+                    except Exception as e:
+                        sys.stderr.write("While calling getCourseRuntime() from run(): '%s'\n" % `e`)
+                        continue
                     # If getCourseRuntime() failed, that method will have logged
                     # the error, so we just continue:
                     if self.courseStartDate is None or self.courseEndDate is None:
@@ -333,30 +337,33 @@ class EngagementComputer(object):
         
     def getCourseRuntime(self, courseName, testOnly=False):
         
-        # Already provided an error msg for this course name?
-        if courseName in self.runtimesNotFoundCourses:
-            return(None,None)
-        
         try:
-            runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db='Misc')
-        except Exception as e:
-            sys.stderr.write('While looking up course start/end times in getCourseRuntime(): %s\n' % `e`)
-            return
-        if testOnly:
-            # Just ensure that the 'CourseRuntimes' table exists so
-            # that we can fail early:
-            try:
-                runtimeLookupDb.query("SELECT course_start_date, course_end_date FROM CourseRuntimes LIMIT 1;")
-                return
-            except Exception as e:
-                raise ValueError('Cannot read CourseRuntimes table: %s' % `e`)
+            # Already provided an error msg for this course name?
+            if courseName in self.runtimesNotFoundCourses:
+                return(None,None)
             
-        for runtimes in runtimeLookupDb.query("SELECT course_start_date, course_end_date FROM CourseRuntimes WHERE course_display_name = '%s';" % courseName):
-            return (runtimes[0], runtimes[1])
-        # No start/end times found for this course:
-        sys.stderr.write("Did not find start/end times for class '%s'\n" % courseName)
-        self.runtimesNotFoundCourses.append(courseName)
-        return (None,None)
+            try:
+                runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db='Misc')
+            except Exception as e:
+                sys.stderr.write('While looking up course start/end times in getCourseRuntime(): %s\n' % `e`)
+                return (None,None)
+            if testOnly:
+                # Just ensure that the 'CourseRuntimes' table exists so
+                # that we can fail early:
+                try:
+                    runtimeLookupDb.query("SELECT course_start_date, course_end_date FROM CourseRuntimes LIMIT 1;")
+                    return
+                except Exception as e:
+                    raise ValueError('Cannot read CourseRuntimes table: %s' % `e`)
+                
+            for runtimes in runtimeLookupDb.query("SELECT course_start_date, course_end_date FROM CourseRuntimes WHERE course_display_name = '%s';" % courseName):
+                return (runtimes[0], runtimes[1])
+            # No start/end times found for this course:
+            sys.stderr.write("Did not find start/end times for class '%s'\n" % courseName)
+            self.runtimesNotFoundCourses.append(courseName)
+        except Exception as e:
+            sys.stderr.write("While attempting lookup of course start/end times: '%s'\n" % `e`)
+            return (None,None)
     
     def getVideoLength(self):
         return EngagementComputer.VIDEO_EVENT_DURATION # minutes

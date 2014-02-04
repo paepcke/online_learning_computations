@@ -108,16 +108,16 @@ else
 fi
 
 #*************
-echo "Year: $YEAR"
-echo "Course: '$COURSE_NAME'"
-echo "User: '$USERNAME'"
-echo "PWD: '$PASSWD'"
-if [ -z $PASSWD ]
-then
-    echo "PWD empty"
-else
-    echo "PWD full"
-fi
+# echo "Year: $YEAR"
+# echo "Course: '$COURSE_NAME'"
+# echo "User: '$USERNAME'"
+# echo "PWD: '$PASSWD'"
+# if [ -z $PASSWD ]
+# then
+#     echo "PWD empty"
+# else
+#     echo "PWD full"
+# fi
 # exit
 #*************
 
