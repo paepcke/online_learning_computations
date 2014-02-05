@@ -346,11 +346,11 @@ class EngagementComputer(object):
         
     def getCourseRuntime(self, courseName, testOnly=False):
         
+        # Already provided an error msg for this course name?
+        if courseName in self.runtimesNotFoundCourses:
+            return(None,None)
+        
         try:
-            # Already provided an error msg for this course name?
-            if courseName in self.runtimesNotFoundCourses:
-                return(None,None)
-            
             try:
                 runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db='Misc')
             except Exception as e:
@@ -375,11 +375,10 @@ class EngagementComputer(object):
             sys.stderr.write("While attempting lookup of course start/end times: '%s'\n" % `e`)
             return (None,None)
         finally:
-            if runtimeLookupDb is not None:
-                try:
-                    runtimeLookupDb.close()
-                except Exception as e:
-                    sys.stderr.write('Could not close runtime lookup db: \n' % `e`);
+            try:
+                runtimeLookupDb.close()
+            except Exception as e:
+                sys.stderr.write('Could not close runtime lookup db: \n' % `e`);
     
     def getVideoLength(self):
         return EngagementComputer.VIDEO_EVENT_DURATION # minutes
@@ -390,11 +389,14 @@ class EngagementComputer(object):
             for student in sessionsByStudentDict.keys():
                 sessionsArr = sessionsByStudentDict[student]
                 for dateMinutesTuple in sessionsArr:
-                    yield '%s,%s,%s,%s,%d\n' % (courseName,
-                                                student,
-                                                dateMinutesTuple[0].date(),
-                                                dateMinutesTuple[0].time(),
-                                                dateMinutesTuple[1])
+                    try:
+                        yield '%s,%s,%s,%s,%d\n' % (courseName,
+                                                    student,
+                                                    dateMinutesTuple[0].date(),
+                                                    dateMinutesTuple[0].time(),
+                                                    dateMinutesTuple[1])
+                    except AttributeError as e:
+                        sys.stderr.write('In allDataIterator() dataMinutesTuple[0] was bad: (%s): %s\n' % (str(dateMinutesTuple),`e`));
 
 if __name__ == '__main__':
     
