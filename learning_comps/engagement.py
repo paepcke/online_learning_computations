@@ -126,83 +126,88 @@ class EngagementComputer(object):
         TIME_INDEX      = 2
         IS_VIDEO_INDEX  = 3
         
-        if self.courseToProfile is None:
-            # Profile all courses:
-            queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, time;' % 
-                                          self.tableName)
-        else:
-            queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY time;' % 
-                                          (self.tableName, self.courseToProfile))
-        for activityRecord in queryIterator:
-            currEvent = {'course_display_name' : activityRecord[COURSE_INDEX],
-                         'anon_screen_name'    : activityRecord[STUDENT_INDEX],
-                         'eventDateTime'       : activityRecord[TIME_INDEX], 
-                         'isVideo'             : activityRecord[IS_VIDEO_INDEX]}
-            if prevEvent is None:
-                # First event of this course:
-                if len(currEvent['anon_screen_name']) > 0 and\
-                   len(currEvent['course_display_name']) > 0:
-                    self.currStudent = currEvent['anon_screen_name']
-                    self.currCourse  = currEvent['course_display_name']
-                    # Get start and end dates of this class:
-                    try:
-                        (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
-                    except Exception as e:
-                        sys.stderr.write("While calling getCourseRuntime() from run(): '%s'\n" % `e`)
-                        continue
-                    # If getCourseRuntime() failed, that method will have logged
-                    # the error, so we just continue:
-                    if self.courseStartDate is None or self.courseEndDate is None:
-                        continue
-                    # Only deal with classes that started in the 
-                    # desired year:
-                    if not self.courseStartDate.year in self.coursesStartYearsArr:
-                        continue
-                    self.sessionStartTime = currEvent['eventDateTime']
-                    prevEvent = currEvent
-                continue
-            
-            if currEvent['course_display_name'] != self.currCourse:
-                # Previous event was last event of its course
-                # Is this new event processable? I.e. does it have
-                # all the info we need? If not, skip this event: 
-                if len(currEvent['anon_screen_name']) > 0 and\
-                   len(currEvent['course_display_name']) > 0:
-                    # Account for the last session of current student in the current
+        try:
+            if self.courseToProfile is None:
+                # Profile all courses:
+                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, time;' % 
+                                              self.tableName)
+            else:
+                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY time;' % 
+                                              (self.tableName, self.courseToProfile))
+            for activityRecord in queryIterator:
+                currEvent = {'course_display_name' : activityRecord[COURSE_INDEX],
+                             'anon_screen_name'    : activityRecord[STUDENT_INDEX],
+                             'eventDateTime'       : activityRecord[TIME_INDEX], 
+                             'isVideo'             : activityRecord[IS_VIDEO_INDEX]}
+                if prevEvent is None:
+                    # First event of this course:
+                    if len(currEvent['anon_screen_name']) > 0 and\
+                       len(currEvent['course_display_name']) > 0:
+                        self.currStudent = currEvent['anon_screen_name']
+                        self.currCourse  = currEvent['course_display_name']
+                        # Get start and end dates of this class:
+                        try:
+                            (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
+                        except Exception as e:
+                            sys.stderr.write("While calling getCourseRuntime() from run(): '%s'\n" % `e`)
+                            continue
+                        # If getCourseRuntime() failed, that method will have logged
+                        # the error, so we just continue:
+                        if self.courseStartDate is None or self.courseEndDate is None:
+                            continue
+                        # Only deal with classes that started in the 
+                        # desired year:
+                        if not self.courseStartDate.year in self.coursesStartYearsArr:
+                            continue
+                        self.sessionStartTime = currEvent['eventDateTime']
+                        prevEvent = currEvent
+                    continue
+                
+                if currEvent['course_display_name'] != self.currCourse:
+                    # Previous event was last event of its course
+                    # Is this new event processable? I.e. does it have
+                    # all the info we need? If not, skip this event: 
+                    if len(currEvent['anon_screen_name']) > 0 and\
+                       len(currEvent['course_display_name']) > 0:
+                        # Account for the last session of current student in the current
+                        # class:
+                        self.wrapUpSession(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
+                        self.sessionStartTime = currEvent['eventDateTime']
+                        self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+                        # Start a new course:
+                        self.currStudent = currEvent['anon_screen_name']
+                        self.currCourse  = currEvent['course_display_name']
+                        self.sessionStartTime = currEvent['eventDateTime']
+                        prevEvent = currEvent
+                    continue
+                # Steady state: Next event in same course as
+                # previous event:
+                if currEvent['anon_screen_name'] != self.currStudent:
+                    # Same course as prev event, but different student:
+                    # Account for this last session of this student in the current
                     # class:
-                    self.wrapUpSession(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
+                    self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession)
                     self.sessionStartTime = currEvent['eventDateTime']
-                    self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
-                    # Start a new course:
+                    self.wrapUpStudent(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
                     self.currStudent = currEvent['anon_screen_name']
-                    self.currCourse  = currEvent['course_display_name']
-                    self.sessionStartTime = currEvent['eventDateTime']
                     prevEvent = currEvent
-                continue
-            # Steady state: Next event in same course as
-            # previous event:
-            if currEvent['anon_screen_name'] != self.currStudent:
-                # Same course as prev event, but different student:
-                # Account for this last session of this student in the current
-                # class:
+                    continue
+                else:
+                    # Same course and student as previous event:
+                    self.addTimeToSession(prevEvent['eventDateTime'], currEvent['eventDateTime'], prevEvent['isVideo'], self.timeSpentThisSession)
+                    prevEvent = currEvent;
+                    continue
+            # Wrap up the last class:
+            if currEvent is not None:
                 self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession)
                 self.sessionStartTime = currEvent['eventDateTime']
-                self.wrapUpStudent(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
-                self.currStudent = currEvent['anon_screen_name']
-                prevEvent = currEvent
-                continue
-            else:
-                # Same course and student as previous event:
-                self.addTimeToSession(prevEvent['eventDateTime'], currEvent['eventDateTime'], prevEvent['isVideo'], self.timeSpentThisSession)
-                prevEvent = currEvent;
-                continue
-        # Wrap up the last class:
-        if currEvent is not None:
-            self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession)
-            self.sessionStartTime = currEvent['eventDateTime']
-            self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
-
-
+                self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+        finally:
+            if self.db is not None:
+                try:
+                    self.db.close()
+                except Exception as e:
+                    sys.stderr.write('Could not close activities db: \n' % `e`);
 
     def addTimeToSession(self, dateTimePrevEvent, dateTimeCurrEvent, isVideo, timeSpentSoFar):
         if self.sessionStartTime == 0:
@@ -369,6 +374,12 @@ class EngagementComputer(object):
         except Exception as e:
             sys.stderr.write("While attempting lookup of course start/end times: '%s'\n" % `e`)
             return (None,None)
+        finally:
+            if runtimeLookupDb is not None:
+                try:
+                    runtimeLookupDb.close()
+                except Exception as e:
+                    sys.stderr.write('Could not close runtime lookup db: \n' % `e`);
     
     def getVideoLength(self):
         return EngagementComputer.VIDEO_EVENT_DURATION # minutes
