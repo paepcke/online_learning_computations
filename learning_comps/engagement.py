@@ -189,6 +189,7 @@ class EngagementComputer(object):
                             continue
                         self.sessionStartTime = currEvent['eventDateTime']
                         prevEvent = currEvent
+                        self.log("Starting on course %s..." % currEvent['course_display_name'])
                     continue
                 
                 if currEvent['course_display_name'] != self.currCourse:
@@ -206,6 +207,7 @@ class EngagementComputer(object):
                         self.currCourse  = currEvent['course_display_name']
                         self.sessionStartTime = currEvent['eventDateTime']
                         prevEvent = currEvent
+                        self.log("Starting on course %s..." % self.currCourse)
                     continue
                 # Steady state: Next event in same course as
                 # previous event:
@@ -373,6 +375,7 @@ class EngagementComputer(object):
             # Start a new sessions record for
             # the next course we'll tackle: 
             self.studentSessionsDict = {}
+            self.log("Done with course %s." % courseName)
         return True
         
     def getCourseRuntime(self, courseName, testOnly=False):
@@ -428,6 +431,9 @@ class EngagementComputer(object):
                                                     dateMinutesTuple[1])
                     except AttributeError as e:
                         sys.stderr.write('In allDataIterator() dataMinutesTuple[0] was bad: (%s): %s\n' % (str(dateMinutesTuple),`e`));
+
+    def log(self, msg):
+        print('%s: %s' %  (str(datetime.datetime.now()), msg))
 
 if __name__ == '__main__':
     
