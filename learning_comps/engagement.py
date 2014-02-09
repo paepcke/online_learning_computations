@@ -81,6 +81,28 @@ class EngagementComputer(object):
     NON_VIDEO_EVENT_DURATION = 5
     
     def __init__(self, coursesStartYearsArr, dbHost, dbName, tableName, mySQLUser=None, mySQLPwd=None, courseToProfile=None):
+        '''
+        Sets up one session-accounting run through a properly filled table (as
+        per file level comment above.
+        @param coursesStartYearsArr: array of the years during which courses under investigation ran
+        @type coursesStartYearsArr: [int]
+        @param dbHost: MySQL host where the activities table resides 
+        @type dbHost: string
+        @param dbName: name of db within server in which the activities table resides. Use 
+            this parameter to place test tables into, say the 'test' database. Point this dbName
+            parameter to 'test' and all ops will look for the activities table and CourseRuntimes
+            table in that db.
+        @type dbName: string
+        @param tableName: name of table that holds the activities as per file level header. 
+        @type tableName: string
+        @param mySQLUser: user under which to log into MySQL for the work
+        @type mySQLUser: string
+        @param mySQLPwd: password to use for MySQL
+        @type mySQLPwd: string
+        @param courseToProfile: name of course to analyze for sessions. If None all courses 
+             that started in one of the years listed in coursesStartYearArr will be examined. 
+        @type courseToProfile: [string]
+        '''
         self.dbHost = dbHost
         self.dbName = dbName
         self.tableName = tableName
@@ -111,6 +133,12 @@ class EngagementComputer(object):
         self.getCourseRuntime('fakename', testOnly=True)        
         
     def run(self):
+        '''
+        Run the analysis. In spite of this method name, the EngagementComputer
+        class is not a thread. Goes through every wanted course and every student
+        within that course. Partitions student activity times into sessions, and
+        does the accounting.
+        '''
         self.studentSessionsDict   = {}
         # For saving all sessions for all students across all classes:
         self.allStudentsDicts = {}
@@ -171,8 +199,7 @@ class EngagementComputer(object):
                        len(currEvent['course_display_name']) > 0:
                         # Account for the last session of current student in the current
                         # class:
-                        self.wrapUpSession(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
-                        self.sessionStartTime = currEvent['eventDateTime']
+                        self.wrapUpSession(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession, prevEvent['eventDateTime'])
                         self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
                         # Start a new course:
                         self.currStudent = currEvent['anon_screen_name']
@@ -186,7 +213,7 @@ class EngagementComputer(object):
                     # Same course as prev event, but different student:
                     # Account for this last session of this student in the current
                     # class:
-                    self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession)
+                    self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession, prevEvent['eventDateTime'])
                     self.sessionStartTime = currEvent['eventDateTime']
                     self.wrapUpStudent(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
                     self.currStudent = currEvent['anon_screen_name']
@@ -199,7 +226,7 @@ class EngagementComputer(object):
                     continue
             # Wrap up the last class:
             if currEvent is not None:
-                self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession)
+                self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession, prevEvent['eventDateTime'])
                 self.sessionStartTime = currEvent['eventDateTime']
                 self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
         finally:
@@ -210,12 +237,26 @@ class EngagementComputer(object):
                     sys.stderr.write('Could not close activities db: \n' % `e`);
 
     def addTimeToSession(self, dateTimePrevEvent, dateTimeCurrEvent, isVideo, timeSpentSoFar):
+        '''
+        Called when a new event by a student is being processed. Adds the
+        event time to self.timeSpentThisSession. If time since previous
+        event > SESSION_TIMEOUT, the current session is finalized, and
+        a new session is started.
+        @param dateTimePrevEvent:
+        @type dateTimePrevEvent:
+        @param dateTimeCurrEvent:
+        @type dateTimeCurrEvent:
+        @param isVideo:
+        @type isVideo:
+        @param timeSpentSoFar:
+        @type timeSpentSoFar:
+        '''
         if self.sessionStartTime == 0:
             self.sessionStartTime = dateTimeCurrEvent
         timeDelta = dateTimeCurrEvent - dateTimePrevEvent
-        minutes   = round(timeDelta.seconds/60.0)
+        minutes   = round(timeDelta.total_seconds()/60.0)
         if minutes > EngagementComputer.SESSION_TIMEOUT:
-            self.wrapUpSession(self.currStudent, isVideo, timeSpentSoFar)
+            self.wrapUpSession(self.currStudent, isVideo, timeSpentSoFar, dateTimeCurrEvent)
         else:
             newTimeSpent = timeSpentSoFar + minutes
             self.timeSpentThisSession = newTimeSpent
@@ -234,7 +275,7 @@ class EngagementComputer(object):
         '''
         pass
     
-    def wrapUpSession(self, currentStudent, wasVideo, timeSpentSoFar):
+    def wrapUpSession(self, currentStudent, wasVideo, timeSpentSoFar, dateTimeNewSessionStart):
         '''
         A student event is more than SESSION_TIMEOUT after the previous
         event by the same student in the same class.
@@ -257,6 +298,8 @@ class EngagementComputer(object):
             self.studentSessionsDict[currentStudent] = []
         self.studentSessionsDict[currentStudent].append((self.sessionStartTime, newTimeSpentSoFar))
         self.timeSpentThisSession = 0
+        self.sessionStartTime = dateTimeNewSessionStart
+
             
     def wrapUpCourse(self, courseName, studentSessionsDict):
         '''
@@ -322,18 +365,6 @@ class EngagementComputer(object):
                         greaterSixtyMin += 1
                         
                     totalEffortAllStudents += sum(thisWeekThisStudentSessionList)
-#                     #***************
-#                     if self.currCourse == "Engineering/Solar/Fall2013":
-#                         print('%s:%s (%s): Med,one2Twen,twen2Hr,grtHr,totalEff: %s, %s, %s, %s, %s' % (
-#                                                                                                     student,
-#                                                                                                     self.currCourdse,
-#                                                                                                     numWeeks,
-#                                                                                                     studentMedianThisWeek,
-#                                                                                                     oneToTwentyMin,
-#                                                                                                     twentyoneToSixtyMin,
-#                                                                                                     greaterSixtyMin,
-#                                                                                                     totalEffortAllStudents))
-#                     #***************
                         
             self.classStats[courseName] = (totalStudentSessions, int(round(totalEffortAllStudents)), oneToTwentyMin, twentyoneToSixtyMin, greaterSixtyMin)
         finally:
@@ -352,7 +383,7 @@ class EngagementComputer(object):
         
         try:
             try:
-                runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db='Misc')
+                runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db=self.dbName)
             except Exception as e:
                 sys.stderr.write('While looking up course start/end times in getCourseRuntime(): %s\n' % `e`)
                 return (None,None)
@@ -411,7 +442,14 @@ if __name__ == '__main__':
         courseToProfile = None
         
     # -------------- Run the Computation ---------------
-    comp = EngagementComputer([int(yearToProfile)], 'localhost', 'Misc', 'Activities', mySQLUser='paepcke', mySQLPwd=None, courseToProfile=courseToProfile)
+    #***** Switch between testing and real:
+    #testing = True
+    testing = False
+    if testing:
+        db = 'test'
+    else:
+        db = 'Misc'
+    comp = EngagementComputer([int(yearToProfile)], 'localhost', db, 'Activities', mySQLUser='paepcke', mySQLPwd=None, courseToProfile=courseToProfile)
     comp.run()
     
     # -------------- Output Results to Disk ---------------
