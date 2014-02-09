@@ -177,7 +177,7 @@ class EngagementComputer(object):
                         try:
                             (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
                         except Exception as e:
-                            sys.stderr.write("While calling getCourseRuntime() from run(): '%s'\n" % `e`)
+                            self.logErr("While calling getCourseRuntime() from run(): '%s'" % `e`)
                             continue
                         # If getCourseRuntime() failed, that method will have logged
                         # the error, so we just continue:
@@ -228,7 +228,7 @@ class EngagementComputer(object):
                     continue
             # Wrap up the last class:
             if currEvent is not None:
-                self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession, prevEvent['eventDateTime'])
+                self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession, currEvent['eventDateTime'])
                 self.sessionStartTime = currEvent['eventDateTime']
                 self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
         finally:
@@ -236,7 +236,7 @@ class EngagementComputer(object):
                 try:
                     self.db.close()
                 except Exception as e:
-                    sys.stderr.write('Could not close activities db: \n' % `e`);
+                    self.logErr('Could not close activities db: ' % `e`);
 
     def addTimeToSession(self, dateTimePrevEvent, dateTimeCurrEvent, isVideo, timeSpentSoFar):
         '''
@@ -322,13 +322,13 @@ class EngagementComputer(object):
                 not isinstance(endDate, datetime.datetime):
                 return False
             if endDate < startDate:
-                sys.stderr.write("%s: endDate (%s) < startDate(%s)\n" % (courseName, endDate, startDate))
+                self.logErr("%s: endDate (%s) < startDate(%s)" % (courseName, endDate, startDate))
                 return False
             # Partition into weeks:
             courseDurationDelta = endDate - startDate;
             courseDays = courseDurationDelta.days
             if courseDays < 7:
-                sys.stderr.write("%s: lasted less than one week (endDate %s; startDate%s)\n" % (courseName, endDate, startDate))
+                self.logErr("%s: lasted less than one week (endDate %s; startDate%s)" % (courseName, endDate, startDate))
                 return False
             numWeeks = int(math.ceil(courseDays / 7))
             oneToTwentyMin = 0
@@ -346,7 +346,7 @@ class EngagementComputer(object):
                     dateAndSessionLenArr = self.studentSessionsDict[student]
                     for (eventDateTime, engageDurationMins) in dateAndSessionLenArr:
                         if not isinstance(eventDateTime, datetime.datetime):
-                            sys.stderr.write("Expected datetime, but got %s ('%s') from dateAndSessionLenArr.\n" % 
+                            self.logErr("Expected datetime, but got %s ('%s') from dateAndSessionLenArr." % 
                                              (type(eventDateTime), str(eventDateTime)))
                             continue
                         if eventDateTime < weekStart or\
@@ -388,7 +388,7 @@ class EngagementComputer(object):
             try:
                 runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db=self.dbName)
             except Exception as e:
-                sys.stderr.write('While looking up course start/end times in getCourseRuntime(): %s\n' % `e`)
+                self.logErr('While looking up course start/end times in getCourseRuntime(): %s' % `e`)
                 return (None,None)
             if testOnly:
                 # Just ensure that the 'CourseRuntimes' table exists so
@@ -402,17 +402,17 @@ class EngagementComputer(object):
             for runtimes in runtimeLookupDb.query("SELECT course_start_date, course_end_date FROM CourseRuntimes WHERE course_display_name = '%s';" % courseName):
                 return (runtimes[0], runtimes[1])
             # No start/end times found for this course:
-            sys.stderr.write("Did not find start/end times for class '%s'\n" % courseName)
+            self.logErr("Did not find start/end times for class '%s'" % courseName)
             self.runtimesNotFoundCourses.append(courseName)
             return (None,None)
         except Exception as e:
-            sys.stderr.write("While attempting lookup of course start/end times: '%s'\n" % `e`)
+            self.logErr("While attempting lookup of course start/end times: '%s'" % `e`)
             return (None,None)
         finally:
             try:
                 runtimeLookupDb.close()
             except Exception as e:
-                sys.stderr.write('Could not close runtime lookup db: \n' % `e`);
+                self.logErr('Could not close runtime lookup db: ' % `e`);
     
     def getVideoLength(self):
         return EngagementComputer.VIDEO_EVENT_DURATION # minutes
@@ -430,10 +430,13 @@ class EngagementComputer(object):
                                                     dateMinutesTuple[0].time(),
                                                     dateMinutesTuple[1])
                     except AttributeError as e:
-                        sys.stderr.write('In allDataIterator() dataMinutesTuple[0] was bad: (%s): %s\n' % (str(dateMinutesTuple),`e`));
+                        self.logErr('In allDataIterator() dataMinutesTuple[0] was bad: (%s): %s' % (str(dateMinutesTuple),`e`));
 
     def log(self, msg):
         print('%s: %s' %  (str(datetime.datetime.now()), msg))
+        
+    def logErr(self, msg):
+        sys.stderr.write('     %s: %s\n' %  (str(datetime.datetime.now()), msg))
 
 if __name__ == '__main__':
     
