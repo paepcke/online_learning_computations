@@ -20,7 +20,9 @@ Example rows:
 | Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | play_video | 2013-07-20 22:59:36      | 1 |
 
 
-Also assumes availability of the following DB table:
+Also assumes availability of the following DB table;
+See scripts/prepEngagementAnalysis.sh for how to build
+that table:
 
 mysql> DESCRIBE CourseRuntimes;
 +---------------------+--------------+------+-----+---------+-------+
@@ -44,8 +46,9 @@ mysql> SELECT * FROM CourseRuntimes;
 4 rows in set (0.00 sec)
 
 Grouped by course, then student, and ordered by time.
-See scripts/prepEngagementAnalysis.sh for how to build
-that table:
+The course end time is only used to filter
+out courses that seem to have lasted less than 7 days.
+Those courses tend to be test courses.
 
 @author: paepcke
 '''
@@ -412,7 +415,7 @@ class EngagementComputer(object):
             try:
                 runtimeLookupDb.close()
             except Exception as e:
-                self.logErr('Could not close runtime lookup db: ' % `e`);
+                self.logErr('Could not close runtime lookup db: %s' % `e`);
     
     def getVideoLength(self):
         return EngagementComputer.VIDEO_EVENT_DURATION # minutes

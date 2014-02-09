@@ -123,13 +123,14 @@ fi
 
 thisScriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Get course names if needed:
+# Get course names if needed, removing spaces and empty lines:
 mysql -u $USERNAME -p$PASSWD -e "use Edx; SELECT DISTINCT course_display_name FROM EventXtract;" | \
     sed 's/[\s|]//' | \
     sed '/^$/d' > /tmp/classNames.txt
 
-rm /tmp/engagement_*
+rm /tmp/engagement_* 2> /dev/null
 
+echo "Logging to /tmp/engagement.log"
 echo "Compute course engagement stats for $YEAR: `date`" >> /tmp/engagement.log
-time parallel --gnu --progress --arg-file /tmp/classNames.txt $thisScriptDir/../learning_comps/engagement.py $YEAR ::: ${@};
+$thisScriptDir/../learning_comps/engagement.py $YEAR &>> /tmp/engagement.log
 echo "Compute course engagement stats for $YEAR done: `date`"  >> /tmp/engagement.log
