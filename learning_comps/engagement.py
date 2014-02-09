@@ -437,9 +437,11 @@ class EngagementComputer(object):
 
     def log(self, msg):
         print('%s: %s' %  (str(datetime.datetime.now()), msg))
+        sys.stdout.flush()
         
     def logErr(self, msg):
         sys.stderr.write('     %s: %s\n' %  (str(datetime.datetime.now()), msg))
+        sys.stderr.flush()
 
 if __name__ == '__main__':
     
