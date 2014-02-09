@@ -486,4 +486,5 @@ if __name__ == '__main__':
             fd.write('Course,Student,Date,Time,SessionLength\n')
             for csvSessionRecord in comp.allDataIterator():
                 fd.write(csvSessionRecord)
-                
+    print
+    comp.log("Your results are in %s and %s." % (outFileSummary, outFileAll))              
