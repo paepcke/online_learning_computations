@@ -161,6 +161,7 @@ class EngagementComputer(object):
         IS_VIDEO_INDEX  = 3
         
         try:
+            self.log('About to start the query; will take a while...')
             if self.courseToProfile is None:
                 # Profile all courses:
                 queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, time;' % 
@@ -168,18 +169,19 @@ class EngagementComputer(object):
             else:
                 queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY time;' % 
                                               (self.tableName, self.courseToProfile))
+            self.log('Done with the query')
             for activityRecord in queryIterator:
                 currEvent = {'course_display_name' : activityRecord[COURSE_INDEX],
                              'anon_screen_name'    : activityRecord[STUDENT_INDEX],
                              'eventDateTime'       : activityRecord[TIME_INDEX], 
                              'isVideo'             : activityRecord[IS_VIDEO_INDEX]}
-                # Some records are bogus for various reasons,
-                # like emtpy screen names, or test classes:
-                if self.filterRecord():
-                    continue
                 if prevEvent is None:
                     # First event of this course:
+                    # Check whether it's a demo or sandbox course:
                     if self.filterCourses(currEvent):
+                        continue
+                    #... or a ghost student:
+                    if self.filterStudents(currEvent['anon_screen_name']):
                         continue
                     if len(currEvent['anon_screen_name']) > 0 and\
                        len(currEvent['course_display_name']) > 0:
@@ -204,13 +206,15 @@ class EngagementComputer(object):
                         self.log("Starting on course %s..." % currEvent['course_display_name'])
                     continue
 
-                # Is this a invalid student?                
+                # Is this an invalid student?                
                 if self.filterStudents(currEvent['anon_screen_name']):
                     continue
                 if currEvent['course_display_name'] != self.currCourse:
                     # Previous event was last event of its course
                     # Is this new event processable? I.e. does it have
                     # all the info we need? If not, skip this event: 
+                    if self.filterCourses(currEvent):
+                        continue
                     if len(currEvent['anon_screen_name']) > 0 and\
                        len(currEvent['course_display_name']) > 0:
                         # Account for the last session of current student in the current
