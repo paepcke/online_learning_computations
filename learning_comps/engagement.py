@@ -83,6 +83,9 @@ class EngagementComputer(object):
     # Time duration counted for any non-video event (minutes):
     NON_VIDEO_EVENT_DURATION = 5
     
+    # Recognizing fake course names:
+    FAKE_COURSE_PATTERN = re.compile(r'([Tt]est|[Ss]and[Bb]ox|[Dd]avid|[Dd]emo|Humaanities|ngineering|SampleUniversity|[Jj]ane|ZZZ|Education/EDUC115N[^\s]*\s)')
+    
     def __init__(self, coursesStartYearsArr, dbHost, dbName, tableName, mySQLUser=None, mySQLPwd=None, courseToProfile=None):
         '''
         Sets up one session-accounting run through a properly filled table (as
@@ -170,8 +173,14 @@ class EngagementComputer(object):
                              'anon_screen_name'    : activityRecord[STUDENT_INDEX],
                              'eventDateTime'       : activityRecord[TIME_INDEX], 
                              'isVideo'             : activityRecord[IS_VIDEO_INDEX]}
+                # Some records are bogus for various reasons,
+                # like emtpy screen names, or test classes:
+                if self.filterRecord():
+                    continue
                 if prevEvent is None:
                     # First event of this course:
+                    if self.filterCourses(currEvent):
+                        continue
                     if len(currEvent['anon_screen_name']) > 0 and\
                        len(currEvent['course_display_name']) > 0:
                         self.currStudent = currEvent['anon_screen_name']
@@ -194,7 +203,10 @@ class EngagementComputer(object):
                         prevEvent = currEvent
                         self.log("Starting on course %s..." % currEvent['course_display_name'])
                     continue
-                
+
+                # Is this a invalid student?                
+                if self.filterStudents(currEvent['anon_screen_name']):
+                    continue
                 if currEvent['course_display_name'] != self.currCourse:
                     # Previous event was last event of its course
                     # Is this new event processable? I.e. does it have
@@ -284,14 +296,14 @@ class EngagementComputer(object):
         '''
         A student event is more than SESSION_TIMEOUT after the previous
         event by the same student in the same class.
-        @param sessions:
-        @type sessions:
-        @param time:
-        @type time:
-        @param wasVideo:
-        @type wasVideo:
-        @param timeSpentSoFar:
-        @type timeSpentSoFar:
+        @param currentStudent: student who is currently under analysis
+        @type currentStudent: string
+        @param wasVideo: whether or not the current event is a video event
+        @type wasVideo: boolean
+        @param timeSpentSoFar: cumulative time spent by this student in this session
+        @type timeSpentSoFar: datetime
+        @param dateTimeNewSessionStart: when the upcoming session will start (i.e. current event's time)
+        @type dateTimeNewSessionStart: datetime
         '''
         if wasVideo:
             newTimeSpentSoFar = timeSpentSoFar + self.getVideoLength()
@@ -380,6 +392,25 @@ class EngagementComputer(object):
             self.studentSessionsDict = {}
             self.log("Done with course %s." % courseName)
         return True
+        
+    def filterStudents(self, anon_screen_name):
+        if anon_screen_name == "9c1185a5c5e9fc54612808977ee8f548b2258d31":
+            return True
+        
+    def filterCourses(self, currEvent):
+        if len(currEvent['course_display_name']) == 0:
+            return True
+        if currEvent['course_display_name'] == '3c1276fa_c58b_43ef_bafa_d4d9f18bedf5' or currEvent['course_display_name'] == 'c8ced366_1048_4b4a_8e36_aa60f7b53dd8':
+            return True
+        # Catch all course names containing demo, sandbox, david,
+        # and any space-including versions of the Education/EDUC115N/How_to_Learn_Math
+        # course:
+        if EngagementComputer.FAKE_COURSE_PATTERN.search(currEvent['course_display_name']) is not None:
+            return True 
+        if currEvent['course_display_name'] == 'Education/EDUC115N/How_to_Lean_Math':
+            return True
+        
+        
         
     def getCourseRuntime(self, courseName, testOnly=False):
         
@@ -482,14 +513,14 @@ if __name__ == '__main__':
     # For classes that actually have results: write them:
     if len(comp.classStats.keys()) > 0:
         with open(outFileSummary, 'w') as fd:
-            fd.write('TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
+            fd.write('platform,course_display_name,TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
             for className in comp.classStats.keys():
-                output = className + ',' + re.sub(r'[\s()]','',str(comp.classStats[className]))
+                output = 'OpenEdX,' + className + ',' + re.sub(r'[\s()]','',str(comp.classStats[className]))
                 fd.write(output + '\n') 
         #with sys.stdout as fd:
         with open(outFileAll, 'w') as fd:
-            fd.write('Course,Student,Date,Time,SessionLength\n')
+            fd.write('Platform,Course,Student,Date,Time,SessionLength\n')
             for csvSessionRecord in comp.allDataIterator():
-                fd.write(csvSessionRecord)
+                fd.write('OpenEdX,' + csvSessionRecord)
     print
     comp.log("Your results are in %s and %s." % (outFileSummary, outFileAll))              
