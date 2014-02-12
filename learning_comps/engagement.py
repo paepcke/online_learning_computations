@@ -50,6 +50,34 @@ The course end time is only used to filter
 out courses that seem to have lasted less than 7 days.
 Those courses tend to be test courses.
 
+The output are three files: /tmp/engagement.log,  /tmp/engagementAllCourses_summary.csv,
+and /tmp/engagementAllCourses_allData.csv. The summary file:
+
+TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty
+
+- TotalStudentSessions: the total number of sessions in which at least one minute of time
+                        engagement occurred. This counts all sessions for all students.
+- TotalEffortAllStudents: total number of engagement minutes across all student.                         
+- MedPerWeekOneToTwenty: the number of weeks in which a median of 1 to 20 minutes of time engagement 
+                         was observed, counting each student, each week.
+- MedPerWeekTwentyoneToSixty: the number of weeks in which a median of 21min to 1hr of time engagement 
+                         was observed, counting each student, each week.
+- MedPerWeekGreaterSixty: the number of weeks in which a median >1hr of time engagement 
+                         was observed, counting each student, each week.
+                        
+
+The engagementAllCourses_allData.csv contains every session of every student.
+
+ Platform,Course,Student,Date,Time,SessionLength
+ 
+ - Platform: always OpenEdX
+ - Course: full name of course (course_display_name)
+ - Student: anon_screen_name
+ - Date: date of session
+ - Time: time of session
+ - SessionLength: length of session in minutes
+ 
+
 @author: paepcke
 '''
 import datetime
