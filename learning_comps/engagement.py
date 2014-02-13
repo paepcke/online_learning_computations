@@ -192,10 +192,10 @@ class EngagementComputer(object):
             self.log('About to start the query; will take a while...')
             if self.courseToProfile is None:
                 # Profile all courses:
-                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, time;' % 
+                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, anon_screen_name, time;' % 
                                               self.tableName)
             else:
-                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY time;' % 
+                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY anon_screen_name, time;' % 
                                               (self.tableName, self.courseToProfile))
             self.log('Done with the query')
             for activityRecord in queryIterator:
