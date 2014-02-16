@@ -36,14 +36,15 @@ class UserCountryTableCreator(object):
         for (user, ipStr) in self.db.query("SELECT DISTINCT anon_screen_name, ip FROM EventXtract"):
             try:
                 (twoLetterCode, threeLetterCode, country) = self.ipCountryXlater.lookupIP(ipStr)
-            except ValueError as e:
+            except (ValueError,TypeError) as e:
                 sys.stderr.write("Could not look up one IP string (%s/%s): %s" % (user,ipStr,`e`))
                 continue
-            values.append('(%s,%s,%s,%s)' % (user,twoLetterCode,threeLetterCode,country))
+            values.append("('%s','%s','%s','%s')" % (user,twoLetterCode,threeLetterCode,country))
         valuesStr = ','.join(values)
-        insertQuery = ("INSERT INTO %s (anon_screen_name,two_letter_country,three_letter_country,country) VALUES %s" %
+        insertQuery = ("INSERT INTO %s (anon_screen_name,two_letter_country,three_letter_country,country) VALUES %s;" %
                        ('UserCountry', valuesStr))
         self.db.query(insertQuery)
+        self.db.close()
             
 
 if __name__ == '__main__':

@@ -85,7 +85,7 @@ class IpCountryDict(unittest.TestCase):
                 ipRangeChain = self.ipToCountryDict[lookupKey]
                 break
             except KeyError:
-                lookupKey = str(int(lookupKey) - 1)[0:4]
+                lookupKey = str(int(lookupKey) - 1).zfill(4)[0:4]
                 continue
         for ipInfo in ipRangeChain:
             # Have (rangeStart,rangeEnd,country2Let,country3Let,county)
