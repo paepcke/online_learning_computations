@@ -88,6 +88,10 @@ import os
 import re
 import string
 import sys
+import time
+
+from mysqldb import MySQLDB
+
 
 # Add json_to_relation source dir to $PATH
 # for duration of this execution:
@@ -95,7 +99,6 @@ source_dir = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../js
 source_dir.extend(sys.path)
 sys.path = source_dir
 
-from mysqldb import MySQLDB
 
 
 class EngagementComputer(object):
@@ -112,7 +115,7 @@ class EngagementComputer(object):
     NON_VIDEO_EVENT_DURATION = 5
     
     # Recognizing fake course names:
-    FAKE_COURSE_PATTERN = re.compile(r'([Tt]est|[Ss]and[Bb]ox|[Dd]avid|[Dd]emo|Humaanities|ngineering|SampleUniversity|[Jj]ane|ZZZ|Education/EDUC115N[^\s]*\s)')
+    FAKE_COURSE_PATTERN = re.compile(r'([Tt]est|[Ss]and[Bb]ox|[Dd]avid|[Dd]emo|Humaanities|SampleUniversity|[Jj]ane|ZZZ|Education/EDUC115N[^\s]*\s)')
     
     def __init__(self, coursesStartYearsArr, dbHost, dbName, tableName, mySQLUser=None, mySQLPwd=None, courseToProfile=None):
         '''
@@ -190,6 +193,8 @@ class EngagementComputer(object):
         
         try:
             self.log('About to start the query; will take a while...')
+            queryStartTime = time.time()
+            queryEndTimeReported = False
             if self.courseToProfile is None:
                 # Profile all courses:
                 queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, anon_screen_name, time;' % 
@@ -197,8 +202,10 @@ class EngagementComputer(object):
             else:
                 queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY anon_screen_name, time;' % 
                                               (self.tableName, self.courseToProfile))
-            self.log('Done with the query')
             for activityRecord in queryIterator:
+                if not queryEndTimeReported:
+                    self.log('Query done in %s' % str(datetime.timedelta(seconds=(time.time() - queryStartTime))))
+                    queryEndTimeReported = True
                 currEvent = {'course_display_name' : activityRecord[COURSE_INDEX],
                              'anon_screen_name'    : activityRecord[STUDENT_INDEX],
                              'eventDateTime'       : activityRecord[TIME_INDEX], 
@@ -432,7 +439,7 @@ class EngagementComputer(object):
     def filterCourses(self, currEvent):
         if len(currEvent['course_display_name']) == 0:
             return True
-        if currEvent['course_display_name'] == '3c1276fa_c58b_43ef_bafa_d4d9f18bedf5' or currEvent['course_display_name'] == 'c8ced366_1048_4b4a_8e36_aa60f7b53dd8':
+        if currEvent['anon_screen_name'] == '3c1276fa_c58b_43ef_bafa_d4d9f18bedf5' or currEvent['anon_screen_name'] == 'c8ced366_1048_4b4a_8e36_aa60f7b53dd8':
             return True
         # Catch all course names containing demo, sandbox, david,
         # and any space-including versions of the Education/EDUC115N/How_to_Learn_Math
