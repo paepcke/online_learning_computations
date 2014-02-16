@@ -56,7 +56,7 @@ class IpCountryDict(unittest.TestCase):
                     continue
                 (startIPStr,endIPStr,auth,assigned,twoLetterCountry,threeLetterCountry,country) = line.strip().split(',')  # @UnusedVariable
                 # Use first four digits of start ip as hash key:
-                hashKey = int(startIPStr.strip('"')[0:4])
+                hashKey = startIPStr.strip('"').zfill(10)[0:4]
                 if hashKey != currKey:
                     self.ipToCountryDict[hashKey] = []
                     currKey = hashKey
@@ -85,7 +85,7 @@ class IpCountryDict(unittest.TestCase):
                 ipRangeChain = self.ipToCountryDict[lookupKey]
                 break
             except KeyError:
-                lookupKey -= 1
+                lookupKey = str(int(lookupKey) - 1)[0:4]
                 continue
         for ipInfo in ipRangeChain:
             # Have (rangeStart,rangeEnd,country2Let,country3Let,county)
@@ -113,7 +113,7 @@ class IpCountryDict(unittest.TestCase):
             # Given ip str does not contain four octets:
             return (None,None)
         ipNum = int(oct3) + (int(oct2) * 256) + (int(oct1) * 256 * 256) + (int(oct0) * 256 * 256 * 256)
-        return (ipNum, int(str(ipNum)[0:4]))
+        return (ipNum, str(ipNum).zfill(10)[0:4])
 
 
 if __name__ == '__main__':
