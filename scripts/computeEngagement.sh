@@ -109,7 +109,7 @@ fi
 
 #*************
 # echo "Year: $YEAR"
-# echo "Course: '$COURSE_NAME'"
+#echo "Course: '$COURSE_NAME'"
 # echo "User: '$USERNAME'"
 # echo "PWD: '$PASSWD'"
 # if [ -z $PASSWD ]
@@ -118,7 +118,7 @@ fi
 # else
 #     echo "PWD full"
 # fi
-# exit
+#exit
 #*************
 
 thisScriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -132,5 +132,10 @@ rm /tmp/engagement_* 2> /dev/null
 
 echo "Logging to /tmp/engagement.log"
 echo "Compute course engagement stats for $YEAR: `date`" >> /tmp/engagement.log
-$thisScriptDir/../learning_comps/engagement.py $YEAR &>> /tmp/engagement.log
+if [ -z $COURSE_NAME ]
+then
+    $thisScriptDir/../learning_comps/engagement.py $YEAR &>> /tmp/engagement.log
+else
+    $thisScriptDir/../learning_comps/engagement.py $YEAR $COURSE_NAME &>> /tmp/engagement.log
+fi
 echo "Compute course engagement stats for $YEAR done: `date`"  >> /tmp/engagement.log

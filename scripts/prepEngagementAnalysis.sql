@@ -1,5 +1,6 @@
 CREATE DATABASE IF NOT EXISTS Misc;
-CREATE TABLE Misc.Activities
+DROP TABLE IF EXISTS Misc.Activities;
+CREATE TABLE  Misc.Activities
 SELECT course_display_name,anon_screen_name,event_type,time
 FROM Edx.EventXtract
 UNION
@@ -21,7 +22,7 @@ WHERE event_type = "load_video"
    OR event_type = "play_video"
    OR event_type = "pause_video"
    OR event_type = "seek_video"
-   OR event_type = "speed_change_video"
+   OR event_type = "speed_change_video";
 
 # Find course begin and end times:
 DROP TABLE IF EXISTS CourseRuntimes;
@@ -44,7 +45,7 @@ SELECT course_display_name,
           video_code, 
 	  MIN(time) AS course_start_date,
 	  DATE_ADD(MAX(time), INTERVAL 1 WEEK) AS course_end_date
-   FROM EventXtract 
+   FROM Edx.EventXtract 
    WHERE event_type = "load_video"
      AND course_display_name = "Engineering/Solar/Fall2013"
    ORDER BY video_code;

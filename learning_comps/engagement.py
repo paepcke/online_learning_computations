@@ -84,10 +84,12 @@ import datetime
 import getpass
 import math
 import numpy
+from os import getenv
 import os
 import re
 import string
 import sys
+import tempfile
 import time
 
 from mysqldb import MySQLDB
@@ -549,24 +551,25 @@ if __name__ == '__main__':
         db = 'test'
     else:
         db = 'Misc'
-    comp = EngagementComputer([int(yearToProfile)], 'localhost', db, 'Activities', mySQLUser='paepcke', mySQLPwd=None, courseToProfile=courseToProfile)
+    invokingUser = getenv.getuser()
+    comp = EngagementComputer([int(yearToProfile)], 'localhost', db, 'Activities', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseToProfile)
     comp.run()
     
     # -------------- Output Results to Disk ---------------
     if courseToProfile is None:
         # Analysis was requested for all courses.
         # The summary goes into one file:
-        outFileSummary = '/tmp/engagementAllCourses_summary.csv'
+        outFileSummary = tempfile.NamedTemporaryFile(suffix='engagementAllCourses_summary.csv')
         # File for all student engagement numbers:
-        outFileAll     = '/tmp/engagementAllCourses_allData.csv'
+        outFileAll     = tempfile.NamedTemporaryFile(suffix='engagementAllCourses_allData.csv')
         # File for weekly student effort summary in each course:
-        outFileWeeklyEffort = '/tmp/engagementAllCourses_weeklyEffort.csv'
+        outFileWeeklyEffort = tempfile.NamedTemporaryFile(suffix='engagementAllCourses_weeklyEffort.csv')
     else:
         # Analysis was requested for a single course.
         # The summary goes into /tmp/engagement_<courseNameNoSpacesOrSlashes>_summary.csv:
         courseNameNoSpaces = string.replace(string.replace(courseToProfile,' ',''), '/', '_')
-        outFileSummary = '/tmp/engagement_%s_summary.csv' % courseNameNoSpaces
-        outFileAll     = '/tmp/engagement_%s_allData.csv' % courseNameNoSpaces
+        outFileSummary = tempfile.NamedTemporaryFile(suffix='engagement_%s_summary.csv' % courseNameNoSpaces)
+        outFileAll     = tempfile.NamedTemporaryFile(suffix='engagement_%s_allData.csv' % courseNameNoSpaces)
         outFileWeeklyEffort = '/tmp/engagement_%s_weeklyEffort.csv' % courseNameNoSpaces
     # For classes that actually have results: write them:
     if len(comp.classStats.keys()) > 0:
