@@ -179,6 +179,10 @@ class EngagementComputer(object):
         self.studentSessionsDict   = {}
         # For saving all sessions for all students across all classes:
         self.allStudentsDicts = {}
+        # For saving week by week effort of each student in a class.
+        # Each student has a dict of week-by-week effort for each
+        # class: 
+        self.allStudentsWeeklyEffortDict ={}
         self.currStudent      = None
         self.currCourse       = None
         self.timeSpentThisSession = 0
@@ -369,6 +373,10 @@ class EngagementComputer(object):
         @type studentSessionsDict:
         '''
         try:
+            # Data struct to hold student --> [[week0,x],[week1,y],...],
+            # where x,y,... are minutes of engagement.
+            studentPerWeekEffort = {}
+
             # Get start and end dates of this class:
             (startDate,endDate) = self.getCourseRuntime(courseName)
             if startDate is None or endDate is None or\
@@ -419,13 +427,21 @@ class EngagementComputer(object):
                         twentyoneToSixtyMin += 1
                     else:
                         greaterSixtyMin += 1
-                        
-                    totalEffortAllStudents += sum(thisWeekThisStudentSessionList)
+                    sumEffortThisStudentThisWeek = sum(thisWeekThisStudentSessionList)
+                    # Update this student's efforts with the effort expended this week:
+                    # First occurrence of this student?
+                    try:
+                        thisStudentRecord = studentPerWeekEffort[student]
+                    except KeyError:
+                        studentPerWeekEffort[student] = thisStudentRecord = []
+                    thisStudentRecord.append([weekNum, sumEffortThisStudentThisWeek])  
+                    totalEffortAllStudents += sumEffortThisStudentThisWeek
                         
             self.classStats[courseName] = (totalStudentSessions, int(round(totalEffortAllStudents)), oneToTwentyMin, twentyoneToSixtyMin, greaterSixtyMin)
         finally:
             # Save this course's record of all student sessions
             self.allStudentsDicts[courseName] = self.studentSessionsDict
+            self.allStudentsWeeklyEffortDict[courseName] = studentPerWeekEffort
             # Start a new sessions record for
             # the next course we'll tackle: 
             self.studentSessionsDict = {}
@@ -543,12 +559,15 @@ if __name__ == '__main__':
         outFileSummary = '/tmp/engagementAllCourses_summary.csv'
         # File for all student engagement numbers:
         outFileAll     = '/tmp/engagementAllCourses_allData.csv'
+        # File for weekly student effort summary in each course:
+        outFileWeeklyEffort = '/tmp/engagementAllCourses_weeklyEffort.csv'
     else:
         # Analysis was requested for a single course.
         # The summary goes into /tmp/engagement_<courseNameNoSpacesOrSlashes>_summary.csv:
         courseNameNoSpaces = string.replace(string.replace(courseToProfile,' ',''), '/', '_')
         outFileSummary = '/tmp/engagement_%s_summary.csv' % courseNameNoSpaces
         outFileAll     = '/tmp/engagement_%s_allData.csv' % courseNameNoSpaces
+        outFileWeeklyEffort = '/tmp/engagement_%s_weeklyEffort.csv' % courseNameNoSpaces
     # For classes that actually have results: write them:
     if len(comp.classStats.keys()) > 0:
         with open(outFileSummary, 'w') as fd:
@@ -561,5 +580,16 @@ if __name__ == '__main__':
             fd.write('Platform,Course,Student,Date,Time,SessionLength\n')
             for csvSessionRecord in comp.allDataIterator():
                 fd.write('OpenEdX,' + csvSessionRecord)
-    print
-    comp.log("Your results are in %s and %s." % (outFileSummary, outFileAll))              
+        with open(outFileWeeklyEffort, 'w') as fd:
+            fd.write('platform,course,student,week,effortMinutes\n')
+            # For all dicts of form {student1->[[weekNum0,xMins],[weekNum1,yMins],...,],
+            #                        student2->[[...]
+            for course in comp.allStudentsWeeklyEffortDict.keys():
+                # Get one student's time engagement for all the weeks in this course:
+                studentWeeklyEffortDict = comp.allStudentsWeeklyEffortDict[course]
+                for student in studentWeeklyEffortDict.keys():
+                    # For this student get array of weekNum/time pairs:
+                    studentWeeklyEffort = studentWeeklyEffortDict[student]
+                    for weekNumEffortPair in studentWeeklyEffort:
+                        fd.write('OpenEdX,%s,%s,%d,%d\n' % (course,student,weekNumEffortPair[0],weekNumEffortPair[1]))
+    comp.log("Your results are in %s, %s, and %s." % (outFileSummary, outFileAll, outFileWeeklyEffort))           

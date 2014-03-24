@@ -34,3 +34,10 @@ nosetests.xml
 .mr.developer.cfg
 .project
 .pydevproject
+
+
+argparse
+getpass
+learning_comps/mysqldb.py
+os
+sys
