@@ -2,6 +2,11 @@
 '''
 Created on Feb 2, 2014
 
+Can be called from commandline, or imported into another module, which
+does the little setup in __main__ below, and then invokes run() and
+writeToDisk() on an instance of this class. A convenience script 
+scripts/computeEngagement.sh is available, but not necessary.
+
 Assumes availability of the following DB table:
 mysql> DESCRIBE Activities;
 +---------------------+--------------+------+-----+---------------------+-------+
@@ -84,7 +89,6 @@ import datetime
 import getpass
 import math
 import numpy
-from os import getenv
 import os
 import re
 import string
@@ -504,7 +508,7 @@ class EngagementComputer(object):
                 runtimeLookupDb.close()
             except Exception as e:
                 self.logErr('Could not close runtime lookup db: %s' % `e`);
-    
+  
     def getVideoLength(self):
         return EngagementComputer.VIDEO_EVENT_DURATION # minutes
     
@@ -523,6 +527,66 @@ class EngagementComputer(object):
                     except AttributeError as e:
                         self.logErr('In allDataIterator() dataMinutesTuple[0] was bad: (%s): %s' % (str(dateMinutesTuple),`e`));
 
+    def writeResultsToDisk(self):
+        '''
+        Assumes that run() has been called, and that therefore 
+        instance self.classStats is a dictionary with all computed
+        stats for each class. Computes three final results, and writes
+        them to three temp files. Returns three-tuple with names of
+        those files. The files are tempfiles, and will therefore not
+        be overwritten by multiple successive calls.
+        
+        @return: outFileSummary: one line per course with total sessions, cumulative median weekly effort and such.
+                 outFileAll: big file with all sessions of each student in each class
+                 outFileWeeklyEffort: shows sum of weekly efforts for each student, week by week.
+        @rtype: (string,string,string)
+        '''
+        if courseToProfile is None:
+            # Analysis was requested for all courses.
+            # The summary goes into one file:
+            outFileSummary = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses_summary.csv', delete=False)
+            # File for all student engagement numbers:
+            outFileAll     = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses_allData.csv', delete=False)
+            # File for weekly student effort summary in each course:
+            outFileWeeklyEffort = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses_weeklyEffort.csv', delete=False)
+        else:
+            # Analysis was requested for a single course.
+            # The summary goes into /tmp/engagement_<courseNameNoSpacesOrSlashes>_summary.csv:
+            courseNameNoSpaces = string.replace(string.replace(courseToProfile,' ',''), '/', '_')
+            outFileSummary = tempfile.NamedTemporaryFile(suffix='_engagement_%s_summary.csv' % courseNameNoSpaces, delete=False)
+            outFileAll     = tempfile.NamedTemporaryFile(suffix='_engagement_%s_allData.csv' % courseNameNoSpaces, delete=False)
+            outFileWeeklyEffort = tempfile.NamedTemporaryFile(suffix='_engagement_%s_weeklyEffort.csv' % courseNameNoSpaces, delete=False)
+        try:
+            # For classes that actually have results: write them:
+            if len(self.classStats.keys()) > 0:
+                # Summary file:
+                outFileSummary.write('platform,course_display_name,TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
+                for className in self.classStats.keys():
+                    output = 'OpenEdX,' + className + ',' + re.sub(r'[\s()]','',str(self.classStats[className]))
+                    outFileSummary.write(output + '\n') 
+                # Big detail file    
+                outFileAll.write('Platform,Course,Student,Date,Time,SessionLength\n')
+                for csvSessionRecord in self.allDataIterator():
+                    outFileAll.write('OpenEdX,' + csvSessionRecord)
+                    
+                # Student weekly effort summary:
+                outFileWeeklyEffort.write('platform,course,student,week,effortMinutes\n')
+                # For all dicts of form {student1->[[weekNum0,xMins],[weekNum1,yMins],...,],
+                #                        student2->[[...]
+                for course in self.allStudentsWeeklyEffortDict.keys():
+                    # Get one student's time engagement for all the weeks in this course:
+                    studentWeeklyEffortDict = self.allStudentsWeeklyEffortDict[course]
+                    for student in studentWeeklyEffortDict.keys():
+                        # For this student get array of weekNum/time pairs:
+                        studentWeeklyEffort = studentWeeklyEffortDict[student]
+                        for weekNumEffortPair in studentWeeklyEffort:
+                            outFileWeeklyEffort.write('OpenEdX,%s,%s,%d,%d\n' % (course,student,weekNumEffortPair[0],weekNumEffortPair[1]))
+        finally:
+            outFileSummary.close()
+            outFileAll.close()
+            outFileWeeklyEffort.close()
+            return(outFileSummary.name,outFileAll.name,outFileWeeklyEffort.name)
+        
     def log(self, msg):
         print('%s: %s' %  (str(datetime.datetime.now()), msg))
         sys.stdout.flush()
@@ -551,48 +615,10 @@ if __name__ == '__main__':
         db = 'test'
     else:
         db = 'Misc'
-    invokingUser = getenv.getuser()
+    invokingUser = getpass.getuser()
     comp = EngagementComputer([int(yearToProfile)], 'localhost', db, 'Activities', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseToProfile)
     comp.run()
     
     # -------------- Output Results to Disk ---------------
-    if courseToProfile is None:
-        # Analysis was requested for all courses.
-        # The summary goes into one file:
-        outFileSummary = tempfile.NamedTemporaryFile(suffix='engagementAllCourses_summary.csv')
-        # File for all student engagement numbers:
-        outFileAll     = tempfile.NamedTemporaryFile(suffix='engagementAllCourses_allData.csv')
-        # File for weekly student effort summary in each course:
-        outFileWeeklyEffort = tempfile.NamedTemporaryFile(suffix='engagementAllCourses_weeklyEffort.csv')
-    else:
-        # Analysis was requested for a single course.
-        # The summary goes into /tmp/engagement_<courseNameNoSpacesOrSlashes>_summary.csv:
-        courseNameNoSpaces = string.replace(string.replace(courseToProfile,' ',''), '/', '_')
-        outFileSummary = tempfile.NamedTemporaryFile(suffix='engagement_%s_summary.csv' % courseNameNoSpaces)
-        outFileAll     = tempfile.NamedTemporaryFile(suffix='engagement_%s_allData.csv' % courseNameNoSpaces)
-        outFileWeeklyEffort = '/tmp/engagement_%s_weeklyEffort.csv' % courseNameNoSpaces
-    # For classes that actually have results: write them:
-    if len(comp.classStats.keys()) > 0:
-        with open(outFileSummary, 'w') as fd:
-            fd.write('platform,course_display_name,TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
-            for className in comp.classStats.keys():
-                output = 'OpenEdX,' + className + ',' + re.sub(r'[\s()]','',str(comp.classStats[className]))
-                fd.write(output + '\n') 
-        #with sys.stdout as fd:
-        with open(outFileAll, 'w') as fd:
-            fd.write('Platform,Course,Student,Date,Time,SessionLength\n')
-            for csvSessionRecord in comp.allDataIterator():
-                fd.write('OpenEdX,' + csvSessionRecord)
-        with open(outFileWeeklyEffort, 'w') as fd:
-            fd.write('platform,course,student,week,effortMinutes\n')
-            # For all dicts of form {student1->[[weekNum0,xMins],[weekNum1,yMins],...,],
-            #                        student2->[[...]
-            for course in comp.allStudentsWeeklyEffortDict.keys():
-                # Get one student's time engagement for all the weeks in this course:
-                studentWeeklyEffortDict = comp.allStudentsWeeklyEffortDict[course]
-                for student in studentWeeklyEffortDict.keys():
-                    # For this student get array of weekNum/time pairs:
-                    studentWeeklyEffort = studentWeeklyEffortDict[student]
-                    for weekNumEffortPair in studentWeeklyEffort:
-                        fd.write('OpenEdX,%s,%s,%d,%d\n' % (course,student,weekNumEffortPair[0],weekNumEffortPair[1]))
-    comp.log("Your results are in %s, %s, and %s." % (outFileSummary, outFileAll, outFileWeeklyEffort))           
+    (summaryFile, detailFile, weeklyEffortFile) = comp.writeResultsToDisk()
+    comp.log("Your results are in %s, %s, and %s." % (summaryFile, detailFile, weeklyEffortFile))
