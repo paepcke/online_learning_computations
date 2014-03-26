@@ -2,15 +2,14 @@ import multiprocessing
 from setuptools import setup, find_packages
 setup(
     name = "online_learning_computations",
-    version = "0.1",
+    version = "0.25",
     packages = find_packages(),
 
     # Dependencies on other packages:
     # Couldn't get numpy install to work without
     # an out-of-band: sudo apt-get install python-dev
     setup_requires   = ['nose>=1.1.2'],
-    install_requires = ['mysqldb',
-                        'pymysql3>=0.5', 
+    install_requires = ['pymysql3>=0.5', 
 			'configparser>=3.3.0r2', 
 			'argparse>=1.2.1', 
 			'numpy>=1.8.0'

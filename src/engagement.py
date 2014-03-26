@@ -127,8 +127,10 @@ class EngagementComputer(object):
         '''
         Sets up one session-accounting run through a properly filled table (as
         per file level comment above.
-        @param coursesStartYearsArr: array of the years during which courses under investigation ran
-        @type coursesStartYearsArr: [int]
+        @param coursesStartYearsArr: array of the years during which courses under investigation ran.
+            If None, then any course (or unconditionally the one matching the courseToProfile if 
+            that parm is provided) will be processed. 
+        @type coursesStartYearsArr: {[int] | None}
         @param dbHost: MySQL host where the activities table resides 
         @type dbHost: string
         @param dbName: name of db within server in which the activities table resides. Use 
@@ -536,7 +538,8 @@ class EngagementComputer(object):
         those files. The files are tempfiles, and will therefore not
         be overwritten by multiple successive calls.
         
-        @return: outFileSummary: one line per course with total sessions, cumulative median weekly effort and such.
+        @return: Tri-tuple with paths to three files:
+                 outFileSummary: one line per course with total sessions, cumulative median weekly effort and such.
                  outFileAll: big file with all sessions of each student in each class
                  outFileWeeklyEffort: shows sum of weekly efforts for each student, week by week.
         @rtype: (string,string,string)
