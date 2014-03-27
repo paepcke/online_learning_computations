@@ -96,7 +96,8 @@ import sys
 import tempfile
 import time
 
-from mysqldb import MySQLDB
+#from mysqldb import MySQLDB
+from pymysql_utils.pymysql_utils import MySQLDB
 
 
 # Add json_to_relation source dir to $PATH
@@ -612,8 +613,8 @@ if __name__ == '__main__':
         
     # -------------- Run the Computation ---------------
     #***** Switch between testing and real:
-    #testing = True
-    testing = False
+    testing = True
+    #testing = False
     if testing:
         db = 'test'
     else:
