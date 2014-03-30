@@ -110,21 +110,27 @@ sys.path = source_dir
 
 class EngagementComputer(object):
     
-    # Time in minutes within which a student activity event
-    # must follow her previous event to be counted
-    # as having occurred within one session:
-    SESSION_TIMEOUT = 3 * 60
-    
     # Time duration counted for any video event (minutes):
     VIDEO_EVENT_DURATION = 15
     
     # Time duration counted for any non-video event (minutes):
     NON_VIDEO_EVENT_DURATION = 5
     
+    # Database that contains EventXtract table:
+    EVENT_XTRACT_TABLE_DB = 'Edx'
+    
     # Recognizing fake course names:
     FAKE_COURSE_PATTERN = re.compile(r'([Tt]est|[Ss]and[Bb]ox|[Dd]avid|[Dd]emo|Humaanities|SampleUniversity|[Jj]ane|ZZZ|Education/EDUC115N[^\s]*\s)')
     
-    def __init__(self, coursesStartYearsArr, dbHost, dbName, tableName, mySQLUser=None, mySQLPwd=None, courseToProfile=None):
+    def __init__(self, 
+                coursesStartYearsArr, 
+                dbHost, 
+                dbName, 
+                tableName, 
+                mySQLUser=None, 
+                mySQLPwd=None, 
+                courseToProfile=None, 
+                sessionInactivityThreshold=30):
         '''
         Sets up one session-accounting run through a properly filled table (as
         per file level comment above.
@@ -136,7 +142,7 @@ class EngagementComputer(object):
         @type dbHost: string
         @param dbName: name of db within server in which the activities table resides. Use 
             this parameter to place test tables into, say the 'test' database. Point this dbName
-            parameter to 'test' and all ops will look for the activities table and CourseRuntimes
+            parameter to 'test' and all ops will look for the Activities table and CourseRuntimes
             table in that db.
         @type dbName: string
         @param tableName: name of table that holds the activities as per file level header. 
@@ -148,14 +154,23 @@ class EngagementComputer(object):
         @param courseToProfile: name of course to analyze for sessions. If None all courses 
              that started in one of the years listed in coursesStartYearArr will be examined. 
         @type courseToProfile: [string]
+        @param sessionInactivityThreshold: time in minutes of student inactivity beyond which 
+               it is concluded that the student is no longer working on the computer in the
+               current session.
+        @type sessionInactivityThreshold: int
         '''
         self.dbHost = dbHost
         self.dbName = dbName
         self.tableName = tableName
         self.mySQLUser = mySQLUser
         self.mySQLPwd  = mySQLPwd
-        self.courseToProfile = courseToProfile
+        if courseToProfile == "None":
+            self.courseToProfile = None
+        else:
+            self.courseToProfile = courseToProfile
+        
         self.coursesStartYearsArr = coursesStartYearsArr
+        self.sessionInactivityThreshold = sessionInactivityThreshold
         # To keep track of which course runtimes
         # we already output an error msg for,
         # b/c we didn't find it:
@@ -210,10 +225,10 @@ class EngagementComputer(object):
             queryEndTimeReported = False
             if self.courseToProfile is None:
                 # Profile all courses:
-                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, anon_screen_name, time;' % 
+                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, anon_screen_name, time;' %
                                               self.tableName)
             else:
-                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY anon_screen_name, time;' % 
+                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY anon_screen_name, time;' %\
                                               (self.tableName, self.courseToProfile))
             for activityRecord in queryIterator:
                 if not queryEndTimeReported:
@@ -235,20 +250,25 @@ class EngagementComputer(object):
                        len(currEvent['course_display_name']) > 0:
                         self.currStudent = currEvent['anon_screen_name']
                         self.currCourse  = currEvent['course_display_name']
-                        # Get start and end dates of this class:
-                        try:
-                            (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
-                        except Exception as e:
-                            self.logErr("While calling getCourseRuntime() from run(): '%s'" % `e`)
-                            continue
-                        # If getCourseRuntime() failed, that method will have logged
-                        # the error, so we just continue:
-                        if self.courseStartDate is None or self.courseEndDate is None:
-                            continue
-                        # Only deal with classes that started in the 
-                        # desired year:
-                        if not self.courseStartDate.year in self.coursesStartYearsArr:
-                            continue
+                        # If we are only to consider courses that started during
+                        # a particular year, then find this course's start/end times,
+                        # and ignore the course if it's not in one of the acceptable
+                        # years:
+                        if self.coursesStartYearsArr is not None:
+                            # Get start and end dates of this class:
+                            try:
+                                (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
+                            except Exception as e:
+                                self.logErr("While calling getCourseRuntime() from run(): '%s'" % `e`)
+                                continue
+                            # If getCourseRuntime() failed, that method will have logged
+                            # the error, so we just continue:
+                            if self.courseStartDate is None or self.courseEndDate is None:
+                                continue
+                            # Only deal with classes that started in the 
+                            # desired year:
+                            if not self.courseStartDate.year in self.coursesStartYearsArr:
+                                continue
                         self.sessionStartTime = currEvent['eventDateTime']
                         prevEvent = currEvent
                         self.log("Starting on course %s..." % currEvent['course_display_name'])
@@ -309,7 +329,7 @@ class EngagementComputer(object):
         '''
         Called when a new event by a student is being processed. Adds the
         event time to self.timeSpentThisSession. If time since previous
-        event > SESSION_TIMEOUT, the current session is finalized, and
+        event > self.sessionInactivityThreshold, the current session is finalized, and
         a new session is started.
         @param dateTimePrevEvent:
         @type dateTimePrevEvent:
@@ -324,7 +344,7 @@ class EngagementComputer(object):
             self.sessionStartTime = dateTimeCurrEvent
         timeDelta = dateTimeCurrEvent - dateTimePrevEvent
         minutes   = round(timeDelta.total_seconds()/60.0)
-        if minutes > EngagementComputer.SESSION_TIMEOUT:
+        if minutes > self.sessionInactivityThreshold:
             self.wrapUpSession(self.currStudent, isVideo, timeSpentSoFar, dateTimeCurrEvent)
         else:
             newTimeSpent = timeSpentSoFar + minutes
@@ -346,7 +366,7 @@ class EngagementComputer(object):
     
     def wrapUpSession(self, currentStudent, wasVideo, timeSpentSoFar, dateTimeNewSessionStart):
         '''
-        A student event is more than SESSION_TIMEOUT after the previous
+        A student event is more than self.sessionInactivityThreshold after the previous
         event by the same student in the same class.
         @param currentStudent: student who is currently under analysis
         @type currentStudent: string
@@ -415,6 +435,8 @@ class EngagementComputer(object):
                 for student in self.studentSessionsDict.keys():
                     thisWeekThisStudentSessionList = []
                     dateAndSessionLenArr = self.studentSessionsDict[student]
+                    # See whether can sort by date and then remove
+                    # some of the loop run-throughs:
                     for (eventDateTime, engageDurationMins) in dateAndSessionLenArr:
                         if not isinstance(eventDateTime, datetime.datetime):
                             self.logErr("Expected datetime, but got %s ('%s') from dateAndSessionLenArr." % 
@@ -477,17 +499,23 @@ class EngagementComputer(object):
         
         
     def getCourseRuntime(self, courseName, testOnly=False):
-        
-        # Already provided an error msg for this course name?
-        if courseName in self.runtimesNotFoundCourses:
-            return(None,None)
-        
+        '''
+        Query Edx.EventXtract for the earliest and latest events in the
+        given course.
+        @param courseName: name of course whose times are to be found
+        @type courseName: String
+        @param testOnly: True if caller merely wants to test for presence of CourseRuntimes
+        @type testOnly: Boolean
+        @return: Two-tuple with start and end time. May be (None, None) if times 
+            could not be found
+        @rtype: (datetime, datetime)
+        '''
         try:
             try:
-                runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db=self.dbName)
+                runtimeLookupDb = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db=EngagementComputer.EVENT_XTRACT_TABLE_DB)
             except Exception as e:
                 self.logErr('While looking up course start/end times in getCourseRuntime(): %s' % `e`)
-                return (None,None)
+                return(None,None)
             if testOnly:
                 # Just ensure that the 'CourseRuntimes' table exists so
                 # that we can fail early:
@@ -497,11 +525,18 @@ class EngagementComputer(object):
                 except Exception as e:
                     raise ValueError('Cannot read CourseRuntimes table: %s' % `e`)
                 
-            for runtimes in runtimeLookupDb.query("SELECT course_start_date, course_end_date FROM CourseRuntimes WHERE course_display_name = '%s';" % courseName):
+            # Get start/end time via earliest/latest observed events for given course:
+            query = 'SELECT MIN(time) AS course_start_date,\
+                            MAX(time) AS course_end_date\
+                            FROM EventXtract\
+                            WHERE course_display_name = "%s";' % courseName
+            
+            for runtimes in runtimeLookupDb.query(query):
+                if runtimes is None:
+                    return(None,None)
                 return (runtimes[0], runtimes[1])
             # No start/end times found for this course:
             self.logErr("Did not find start/end times for class '%s'" % courseName)
-            self.runtimesNotFoundCourses.append(courseName)
             return (None,None)
         except Exception as e:
             self.logErr("While attempting lookup of course start/end times: '%s'" % `e`)
@@ -545,7 +580,7 @@ class EngagementComputer(object):
                  outFileWeeklyEffort: shows sum of weekly efforts for each student, week by week.
         @rtype: (string,string,string)
         '''
-        if courseToProfile is None:
+        if self.courseToProfile is None:
             # Analysis was requested for all courses.
             # The summary goes into one file:
             outFileSummary = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses_summary.csv', delete=False)
@@ -556,7 +591,7 @@ class EngagementComputer(object):
         else:
             # Analysis was requested for a single course.
             # The summary goes into /tmp/engagement_<courseNameNoSpacesOrSlashes>_summary.csv:
-            courseNameNoSpaces = string.replace(string.replace(courseToProfile,' ',''), '/', '_')
+            courseNameNoSpaces = string.replace(string.replace(self.courseToProfile,' ',''), '/', '_')
             outFileSummary = tempfile.NamedTemporaryFile(suffix='_engagement_%s_summary.csv' % courseNameNoSpaces, delete=False)
             outFileAll     = tempfile.NamedTemporaryFile(suffix='_engagement_%s_allData.csv' % courseNameNoSpaces, delete=False)
             outFileWeeklyEffort = tempfile.NamedTemporaryFile(suffix='_engagement_%s_weeklyEffort.csv' % courseNameNoSpaces, delete=False)
@@ -567,12 +602,13 @@ class EngagementComputer(object):
                 outFileSummary.write('platform,course_display_name,TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
                 for className in self.classStats.keys():
                     output = 'OpenEdX,' + className + ',' + re.sub(r'[\s()]','',str(self.classStats[className]))
-                    outFileSummary.write(output + '\n') 
+                    outFileSummary.write(output + '\n')
+                outFileSummary.flush()
                 # Big detail file    
                 outFileAll.write('Platform,Course,Student,Date,Time,SessionLength\n')
                 for csvSessionRecord in self.allDataIterator():
                     outFileAll.write('OpenEdX,' + csvSessionRecord)
-                    
+                outFileAll.flush()    
                 # Student weekly effort summary:
                 outFileWeeklyEffort.write('platform,course,student,week,effortMinutes\n')
                 # For all dicts of form {student1->[[weekNum0,xMins],[weekNum1,yMins],...,],
@@ -584,7 +620,11 @@ class EngagementComputer(object):
                         # For this student get array of weekNum/time pairs:
                         studentWeeklyEffort = studentWeeklyEffortDict[student]
                         for weekNumEffortPair in studentWeeklyEffort:
-                            outFileWeeklyEffort.write('OpenEdX,%s,%s,%d,%d\n' % (course,student,weekNumEffortPair[0],weekNumEffortPair[1]))
+                            # Weeks up to this point have been zero-based.
+                            # Add one to the course week-number to make 
+                            # it 1-based:
+                            outFileWeeklyEffort.write('OpenEdX,%s,%s,%d,%d\n' % (course,student,weekNumEffortPair[0]+1,weekNumEffortPair[1]))
+                outFileWeeklyEffort.flush()
         finally:
             outFileSummary.close()
             outFileAll.close()
