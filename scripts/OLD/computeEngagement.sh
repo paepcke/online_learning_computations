@@ -3,15 +3,16 @@
 # Compute engagement for all classes, or one given class.
 # Computations occur in parallel, using engagement.py.
 
-USAGE='Usage: '`basename $0`' yearAsYYYY [courseName]'
+USAGE='Usage: '`basename $0`' [options] [{courseName | None} [yearAsYYYY1, yearAsYYYY2,...]]'
 
-HELP='Compute engagement statistics for one or all classes. Arg yearAsYYYY: year of classes. Optionally: course name'
+HELP='Compute engagement statistics for one or all classes. Optionally: course name or None, followed optionally by any number of years that constrain when qualifying courses must have been started (YYYY)'
 
-COURSE_NAME=''
-YEAR=''
+COURSE_NAME='None'
+YEAR='None'
 needPasswd=false
 PASSWD=''
 USERNAME=`whoami`
+YEARS_SPECIFIED=false
 
 # ----------------------------- Process CLI Args -------------
 
@@ -62,6 +63,7 @@ do
 	exit 1
       fi;;
     -h|--help)
+      echo $USAGE
       echo $HELP
       shift;;
     --)
@@ -70,18 +72,26 @@ do
   esac
 done
 
-if [ -z $1 ]
-then
-  echo $USAGE
-  exit 1
-fi
-YEAR=$1
-shift
-
 if [ ! -z $1 ]
 then
-   COURSE_NAME=$1
+  COURSE_NAME=$1
+  shift
 fi
+
+if [ -z $1 ]
+then
+    YEARS='None'
+else
+    YEARS=$@
+    YEARS_SPECIFIED=true
+fi
+
+#**************
+#echo "Course name: $COURSE_NAME"
+#echo "YEARS: $YEARS"
+#exit 0
+#**************
+
 
 # ----------------------------- Process or Lookup the Password -------------
 
@@ -108,8 +118,8 @@ else
 fi
 
 #*************
-# echo "Year: $YEAR"
-#echo "Course: '$COURSE_NAME'"
+# echo "Years: $YEARS"
+# echo "Course: '$COURSE_NAME'"
 # echo "User: '$USERNAME'"
 # echo "PWD: '$PASSWD'"
 # if [ -z $PASSWD ]
@@ -118,24 +128,54 @@ fi
 # else
 #     echo "PWD full"
 # fi
-#exit
+# exit
 #*************
 
 thisScriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Get course names if needed, removing spaces and empty lines:
-mysql -u $USERNAME -p$PASSWD -e "use Edx; SELECT DISTINCT course_display_name FROM EventXtract;" | \
-    sed 's/[\s|]//' | \
-    sed '/^$/d' > /tmp/classNames.txt
 
-rm /tmp/engagement_* 2> /dev/null
+if [ $COURSE_NAME == 'None' ]
+then
+    echo 'None' > /tmp/classNames.txt
+else
+    echo "`date`: Querying db to get all course names..." >> /tmp/engagement.log
+    mysql -u $USERNAME -p$PASSWD -e "use Edx; SELECT DISTINCT course_display_name FROM EventXtract;" | \
+        sed 's/[\s|]//' | \
+        sed '/^$/d' > /tmp/classNames.txt
+    echo "`date`: Done querying db to get all course names..." >> /tmp/engagement.log
+fi
+
+# Remove old engagement results:
+#******Now goes to custom?********rm /tmp/engagement_* 2> /dev/null
+
 
 echo "Logging to /tmp/engagement.log"
-echo "Compute course engagement stats for $YEAR: `date`" >> /tmp/engagement.log
+# '-n': no terminating CR:
+echo -n "Compute course engagement stats for " >> /tmp/engagement.log
+if [ $COURSE_NAME == 'None' ]
+then
+    echo -n "all courses; "  >> /tmp/engagement.log
+else
+    echo -n "course $COURSE_NAME; "  >> /tmp/engagement.log
+fi
+
+if [ $YEARS_SPECIFIED ]
+then
+    echo "year(s) $YEARS."  >> /tmp/engagement.log
+else
+    echo "any start year."  >> /tmp/engagement.log
+fi
+
+#**********
+exit
+#**********
+
+echo "Compute course engagement stats for $YEARS: `date`" >> /tmp/engagement.log
 if [ -z $COURSE_NAME ]
 then
-    $thisScriptDir/../learning_comps/engagement.py $YEAR &>> /tmp/engagement.log
+    $thisScriptDir/../src/engagement.py $YEARS &>> /tmp/engagement.log
 else
-    $thisScriptDir/../learning_comps/engagement.py $YEAR $COURSE_NAME &>> /tmp/engagement.log
+    $thisScriptDir/../src/engagement.py $YEARS $COURSE_NAME &>> /tmp/engagement.log
 fi
-echo "Compute course engagement stats for $YEAR done: `date`"  >> /tmp/engagement.log
+echo "Compute course engagement stats for $YEARS done: `date`"  >> /tmp/engagement.log

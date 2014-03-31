@@ -1,3 +1,7 @@
+-- Create database Misc, and populate it with
+-- table Activities that is needed for computing
+-- student time engagement (engagement.py)
+
 CREATE DATABASE IF NOT EXISTS Misc;
 DROP TABLE IF EXISTS Misc.Activities;
 CREATE TABLE  Misc.Activities
@@ -24,28 +28,31 @@ WHERE event_type = "load_video"
    OR event_type = "seek_video"
    OR event_type = "speed_change_video";
 
-# Find course begin and end times:
-DROP TABLE IF EXISTS CourseRuntimes;
-CREATE TABLE CourseRuntimes
-       (course_display_name varchar(255),
-        course_start_date DATETIME,
-	course_end_date DATETIME
-	)
-  SELECT course_display_name, 
-  	  MIN(time) AS course_start_date,
-  	  DATE_ADD(MAX(time), INTERVAL 1 WEEK) AS course_end_date
-     FROM Edx.EventXtract 
-     WHERE event_type = "load_video"
-     GROUP BY course_display_name
-     ORDER BY video_code;
+-- The following is obsolete, but I couldn't
+-- get myself to delete:
+
+-- Find course begin and end times:
+-- DROP TABLE IF EXISTS CourseRuntimes;
+-- CREATE TABLE CourseRuntimes
+--        (course_display_name varchar(255),
+--         course_start_date DATETIME,
+-- 	course_end_date DATETIME
+-- 	)
+--   SELECT course_display_name, 
+--   	  MIN(time) AS course_start_date,
+--   	  DATE_ADD(MAX(time), INTERVAL 1 WEEK) AS course_end_date
+--      FROM Edx.EventXtract 
+--      WHERE event_type = "load_video"
+--      GROUP BY course_display_name
+--      ORDER BY video_code;
 
 
-# Just testing:
-SELECT course_display_name, 
-          video_code, 
-	  MIN(time) AS course_start_date,
-	  DATE_ADD(MAX(time), INTERVAL 1 WEEK) AS course_end_date
-   FROM Edx.EventXtract 
-   WHERE event_type = "load_video"
-     AND course_display_name = "Engineering/Solar/Fall2013"
-   ORDER BY video_code;
+-- # Just testing:
+-- SELECT course_display_name, 
+--           video_code, 
+-- 	  MIN(time) AS course_start_date,
+-- 	  DATE_ADD(MAX(time), INTERVAL 1 WEEK) AS course_end_date
+--    FROM Edx.EventXtract 
+--    WHERE event_type = "load_video"
+--      AND course_display_name = "Engineering/Solar/Fall2013"
+--    ORDER BY video_code;

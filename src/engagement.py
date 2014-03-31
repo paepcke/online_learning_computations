@@ -2,12 +2,20 @@
 '''
 Created on Feb 2, 2014
 
+Given a course name, compute the student time-on-task (engagement).
+Two variants: can use 'All' for course name to have all engagements
+computed. Secondly: can add any number of years. When provided, 
+only courses whose first event was in any one of those years will
+be processed. 
+
 Can be called from commandline, or imported into another module, which
 does the little setup in __main__ below, and then invokes run() and
-writeToDisk() on an instance of this class. A convenience script 
-scripts/computeEngagement.sh is available, but not necessary.
+writeToDisk() on an instance of this class. See __main__ for options.
+See open_edx_export_class/src/exportClass.py for example of using
+this module as a library.
 
-Assumes availability of the following DB table:
+Assumes availability of the following DB table, which is generated 
+via script prepEngagementAnalysis.sh 
 mysql> DESCRIBE Activities;
 +---------------------+--------------+------+-----+---------------------+-------+
 | Field               | Type         | Null | Key | Default             | Extra |
@@ -25,35 +33,8 @@ Example rows:
 | Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | play_video | 2013-07-20 22:59:36      | 1 |
 
 
-Also assumes availability of the following DB table;
-See scripts/prepEngagementAnalysis.sh for how to build
-that table:
-
-mysql> DESCRIBE CourseRuntimes;
-+---------------------+--------------+------+-----+---------+-------+
-| Field               | Type         | Null | Key | Default | Extra |
-+---------------------+--------------+------+-----+---------+-------+
-| course_display_name | varchar(255) | YES  |     | NULL    |       |
-| course_start_date   | datetime     | YES  |     | NULL    |       |
-| course_end_date     | datetime     | YES  |     | NULL    |       |
-+---------------------+--------------+------+-----+---------+-------+
-
-Example rows:
-mysql> SELECT * FROM CourseRuntimes;
-+-------------------------------------------------------+---------------------+---------------------+
-| course_display_name                                   | course_start_date   | course_end_date     |
-+-------------------------------------------------------+---------------------+---------------------+
-| Medicine/SciWrite/Fall2013                            | 2013-11-10 06:45:16 | 2013-11-17 06:56:35 |
-| Engineering/EE-222/Applied_Quantum_Mechanics_I        | 2013-11-10 06:54:21 | 2013-11-17 06:54:21 |
-| Engineering/Solar/Fall2013                            | 2013-11-10 06:44:13 | 2013-11-17 07:00:26 |
-| Engineering/CS144/Introduction_to_Computer_Networking | 2013-11-10 06:52:22 | 2013-11-17 06:58:49 |
-+-------------------------------------------------------+---------------------+---------------------+
-4 rows in set (0.00 sec)
-
-Grouped by course, then student, and ordered by time.
-The course end time is only used to filter
-out courses that seem to have lasted less than 7 days.
-Those courses tend to be test courses.
+To use, instantiate EngagementComputer, call the run() method,
+and then the writeResultsToDisk() method.   
 
 The output are three files: /tmp/engagement.log,  /tmp/engagementAllCourses_summary.csv,
 and /tmp/engagementAllCourses_allData.csv. The summary file:
@@ -85,6 +66,8 @@ The engagementAllCourses_allData.csv contains every session of every student.
 
 @author: paepcke
 '''
+import argparse
+import copy
 import datetime
 import getpass
 import math
@@ -96,10 +79,10 @@ import sys
 import tempfile
 import time
 
-#from mysqldb import MySQLDB
 from pymysql_utils.pymysql_utils import MySQLDB
 
 
+#from mysqldb import MySQLDB
 # Add json_to_relation source dir to $PATH
 # for duration of this execution:
 source_dir = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../json_to_relation/json_to_relation")]
@@ -190,8 +173,6 @@ class EngagementComputer(object):
         # Place to hold all stats for one class
         self.classStats = {}
         self.db = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db=dbName)
-        # Ensure that the CourseRuntimes table exists:
-        self.getCourseRuntime('fakename', testOnly=True)        
         
     def run(self):
         '''
@@ -395,9 +376,16 @@ class EngagementComputer(object):
         Called when all students of one class have been
         processed. This method receives a dict that maps
         each student of the class being closed out to 
-        an array of that student's session time.
-        
-        
+        an array of that student's session times and lenghts. 
+        For each student session, the dict value is an
+        array of two-tuples: (sessionStartTime,sessionLength).
+        The studentSessionsDict thus looks like this:
+            {student1 : [(firstTimeS1, 10), (secondTimeS1, 4), ...]
+             student2 : [(firstTimeS2, 10), (secondTimeS2, 4), ...]
+             
+        Important: The times within each array are sorted, so
+        sessionStartTime_n+1 > sessionStartTime_n.
+        We take advantage of this fact to optimize.
         @param studentSessionsDict:
         @type studentSessionsDict:
         '''
@@ -429,24 +417,63 @@ class EngagementComputer(object):
             totalEffortAllStudents = 0
             totalStudentSessions    = 0
             
-            for weekNum in range(numWeeks):
+            studentSessionsLeftToDo = {}
+            
+            for weekNum in range(numWeeks+1):
                 weekStart = startDate + weekNum * datetime.timedelta(weeks=1)
                 weekEnd   = weekStart + datetime.timedelta(weeks=1)
                 for student in self.studentSessionsDict.keys():
                     thisWeekThisStudentSessionList = []
-                    dateAndSessionLenArr = self.studentSessionsDict[student]
-                    # See whether can sort by date and then remove
-                    # some of the loop run-throughs:
-                    for (eventDateTime, engageDurationMins) in dateAndSessionLenArr:
+                    
+                    try:
+                        # If we looked at this student before (i.e. during
+                        # an earlier week, retrieve the array of sessionTime/Len
+                        # two-tuples that are left to process: 
+                        dateAndSessionLenArr = studentSessionsLeftToDo[student]
+                    except KeyError:
+                        # First time we see this student. 
+                        # Get a *copy* of this student's array of time-sorted sessionTime/sessionLen tuples.
+                        # The copying takes time, but working on a copy
+                        # we allows us to delete elements we are done with
+                        # for the purpose of this loop, rather than having to
+                        # go through all the elements left to right each time
+                        # through the loop below:
+                        dateAndSessionLenArr = copy.copy(self.studentSessionsDict[student])
+                        studentSessionsLeftToDo[student] = dateAndSessionLenArr
+
+                    if len(dateAndSessionLenArr) == 0:
+                        continue
+                    while True: 
+                        try:
+                            # Always just look at first sessionTime/Len tuple,
+                            # because we remove the front of the array each time around:
+                            (eventDateTime, engageDurationMins) = dateAndSessionLenArr[0]
+                        except IndexError:
+                            # Done with this student
+                            break
+                        
                         if not isinstance(eventDateTime, datetime.datetime):
                             self.logErr("Expected datetime, but got %s ('%s') from dateAndSessionLenArr." % 
                                              (type(eventDateTime), str(eventDateTime)))
+                            # Don't want to see this array entry again:
+                            dateAndSessionLenArr.pop(0)
                             continue
-                        if eventDateTime < weekStart or\
-                           eventDateTime > weekEnd or\
-                           engageDurationMins == 0:
+                        if eventDateTime < weekStart or engageDurationMins == 0: 
+                            # Don't want to see this array entry again:
+                            dateAndSessionLenArr.pop(0)
                             continue
+                        if eventDateTime > weekEnd:
+                            # Since session start times in the array are
+                            # sorted, no need to continue going through 
+                            # the array if session date > end of the 
+                            # currently considered week. Note that we
+                            # do *not* pop the first element of the
+                            # array, so that it will be picked up next time:
+                            break
                         thisWeekThisStudentSessionList.append(engageDurationMins)
+                        # Don't want to see this array entry again:
+                        dateAndSessionLenArr.pop(0)
+                        
                     if len(thisWeekThisStudentSessionList) == 0:
                         continue
                     # Got all session lengths of this student this week:
@@ -498,14 +525,12 @@ class EngagementComputer(object):
         
         
         
-    def getCourseRuntime(self, courseName, testOnly=False):
+    def getCourseRuntime(self, courseName):
         '''
         Query Edx.EventXtract for the earliest and latest events in the
         given course.
         @param courseName: name of course whose times are to be found
         @type courseName: String
-        @param testOnly: True if caller merely wants to test for presence of CourseRuntimes
-        @type testOnly: Boolean
         @return: Two-tuple with start and end time. May be (None, None) if times 
             could not be found
         @rtype: (datetime, datetime)
@@ -516,14 +541,6 @@ class EngagementComputer(object):
             except Exception as e:
                 self.logErr('While looking up course start/end times in getCourseRuntime(): %s' % `e`)
                 return(None,None)
-            if testOnly:
-                # Just ensure that the 'CourseRuntimes' table exists so
-                # that we can fail early:
-                try:
-                    runtimeLookupDb.query("SELECT course_start_date, course_end_date FROM CourseRuntimes LIMIT 1;")
-                    return
-                except Exception as e:
-                    raise ValueError('Cannot read CourseRuntimes table: %s' % `e`)
                 
             # Get start/end time via earliest/latest observed events for given course:
             query = 'SELECT MIN(time) AS course_start_date,\
@@ -642,25 +659,94 @@ class EngagementComputer(object):
 if __name__ == '__main__':
     
     # -------------- Manage Input Parameters ---------------
-    if len(sys.argv) < 2:
-        sys.stderr.write('Usage: engagement.py <year as YYYY [courseName]\n')
-        sys.exit()
-    yearToProfile = sys.argv[1]
-    if len(sys.argv) > 2:
-        courseToProfile = sys.argv[2]
+    
+    usage = 'Usage: engagement.py [{courseName | None} [<year-as-YYYY>, <year-as-YYYY>, ...]]\n'
+
+    parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]), formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('-u', '--user',
+                        action='store',
+                        help='User ID that is to log into MySQL. Default: the user who is invoking this script.')
+    parser.add_argument('-p', '--pwd',
+                        action='store_true',
+                        help='Request to be asked for pwd for operating MySQL;\n' +\
+                             '    default: content of scriptInvokingUser$Home/.ssh/mysql if --user is unspecified,\n' +\
+                             '    or, if specified user is root, then the content of scriptInvokingUser$Home/.ssh/mysql_root.'
+                        )
+    parser.add_argument('-w', '--password',
+                        action='store',
+                        help='User explicitly provided password to log into MySQL.\n' +\
+                             '    default: content of scriptInvokingUser$Home/.ssh/mysql if --user is unspecified,\n' +\
+                             '    or, if specified user is root, then the content of scriptInvokingUser$Home/.ssh/mysql_root.'
+                        )
+    parser.add_argument('course',
+                        action='store',
+                        help='The course for which engagement is to be computed. Else: engagement for all courses.\n' +\
+                             "To have engagement computed for all courses, use All"
+                        ) 
+    
+    parser.add_argument('years',
+                        nargs='+',
+                        type=int,
+                        help='A list of start years (YYYY) to limit the courses that are computed. Use All if all start years are acceptable'
+                        ) 
+    
+    
+    args = parser.parse_args();
+    if args.user is None:
+        user = getpass.getuser()
     else:
-        courseToProfile = None
+        user = args.user
+        
+    if args.password and args.pwd:
+        raise ValueError('Use either -p, or -w, but not both.')
+        
+    if args.pwd:
+        pwd = getpass.getpass("Enter %s's MySQL password on localhost: " % user)
+    elif args.password:
+        pwd = args.password
+    else:
+        # Try to find pwd in specified user's $HOME/.ssh/mysql
+        currUserHomeDir = os.getenv('HOME')
+        if currUserHomeDir is None:
+            pwd = None
+        else:
+            # Don't really want the *current* user's homedir,
+            # but the one specified in the -u cli arg:
+            userHomeDir = os.path.join(os.path.dirname(currUserHomeDir), user)
+            try:
+                if user == 'root':
+                    with open(os.path.join(currUserHomeDir, '.ssh/mysql_root')) as fd:
+                        pwd = fd.readline().strip()
+                else:
+                    with open(os.path.join(userHomeDir, '.ssh/mysql')) as fd:
+                        pwd = fd.readline().strip()
+            except IOError:
+                # No .ssh subdir of user's home, or no mysql inside .ssh:
+                pwd = ''
+    
+    if args.course == 'All':
+        courseName = None
+    else:
+        courseName = args.course
+    
+    if args.years == 'All':
+        years = None
+    else:
+        years = args.years
+        
+    #**********
+#     print('courseName: %s' % str(courseName))
+#     print('years: %s' % str(years))
+#     sys.exit()
+    #**********
         
     # -------------- Run the Computation ---------------
-    #***** Switch between testing and real:
-    testing = True
-    #testing = False
-    if testing:
-        db = 'test'
-    else:
-        db = 'Misc'
+
+    db = 'Misc'
     invokingUser = getpass.getuser()
-    comp = EngagementComputer([int(yearToProfile)], 'localhost', db, 'Activities', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseToProfile)
+    # Set mysql password to None, which will cause
+    # the __init__() method to check ~/.ssh... 
+    comp = EngagementComputer(years, 'localhost', db, 'Activities', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseName)
     comp.run()
     
     # -------------- Output Results to Disk ---------------
