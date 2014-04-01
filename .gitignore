@@ -41,3 +41,5 @@ getpass
 learning_comps/mysqldb.py
 os
 sys
+include
+local
