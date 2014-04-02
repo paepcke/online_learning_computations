@@ -211,6 +211,7 @@ class EngagementComputer(object):
             else:
                 queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY anon_screen_name, time;' %\
                                               (self.tableName, self.courseToProfile))
+                
             for activityRecord in queryIterator:
                 if not queryEndTimeReported:
                     self.log('Query done in %s' % str(datetime.timedelta(seconds=(time.time() - queryStartTime))))
