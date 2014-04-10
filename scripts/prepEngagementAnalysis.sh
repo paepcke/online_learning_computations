@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Sources prepEngagementAnalysis.sql to create Misc.Activities
-# table. That table is needed for time engagement activities.
+# table. That table is needed for time engagement activities
+# computations.
 
 USAGE="Usage: `basename $0` [-u username][-p][-pYourPwd]"
 
