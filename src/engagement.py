@@ -54,11 +54,11 @@ TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwen
 
 The engagementAllCourses_allData.csv contains every session of every student.
 
- Platform,Course,Student,Date,Time,SessionLength
+ Platform,Course,anon_screen_name,Date,Time,SessionLength
  
  - Platform: always OpenEdX
  - Course: full name of course (course_display_name)
- - Student: anon_screen_name
+ - anon_screen_name: anon_screen_name
  - Date: date of session
  - Time: time of session
  - SessionLength: length of session in minutes
@@ -617,18 +617,18 @@ class EngagementComputer(object):
             # For classes that actually have results: write them:
             if len(self.classStats.keys()) > 0:
                 # Summary file:
-                outFileSummary.write('platform,course_display_name,TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
+                outFileSummary.write('Platform,Course,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
                 for className in self.classStats.keys():
                     output = 'OpenEdX,' + className + ',' + re.sub(r'[\s()]','',str(self.classStats[className]))
                     outFileSummary.write(output + '\n')
                 outFileSummary.flush()
                 # Big detail file    
-                outFileAll.write('Platform,Course,Student,Date,Time,SessionLength\n')
+                outFileAll.write('Platform,Course,anon_screen_name,Date,Time,SessionLength(min)\n')
                 for csvSessionRecord in self.allDataIterator():
                     outFileAll.write('OpenEdX,' + csvSessionRecord)
                 outFileAll.flush()    
                 # Student weekly effort summary:
-                outFileWeeklyEffort.write('platform,course,student,week,effortMinutes\n')
+                outFileWeeklyEffort.write('Platform,Course,anon_screen_name,Week,Effort (min)\n')
                 # For all dicts of form {student1->[[weekNum0,xMins],[weekNum1,yMins],...,],
                 #                        student2->[[...]
                 for course in self.allStudentsWeeklyEffortDict.keys():
