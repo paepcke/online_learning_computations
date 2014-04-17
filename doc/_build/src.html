@@ -1,0 +1,432 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>src Package &mdash; online_learning_computations 0.27 documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.27',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="online_learning_computations 0.27 documentation" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="index.html">online_learning_computations 0.27 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="src-package">
+<h1>src Package<a class="headerlink" href="#src-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="module-src.engagement">
+<span id="engagement-module"></span><h2><tt class="xref py py-mod docutils literal"><span class="pre">engagement</span></tt> Module<a class="headerlink" href="#module-src.engagement" title="Permalink to this headline">¶</a></h2>
+<p>Created on Feb 2, 2014</p>
+<p>Given a course name, compute the student time-on-task (engagement).
+Two variants: can use &#8216;All&#8217; for course name to have all engagements
+computed. Secondly: can add any number of years. When provided, 
+only courses whose first event was in any one of those years will
+be processed.</p>
+<p>Can be called from commandline, or imported into another module, which
+does the little setup in __main__ below, and then invokes run() and
+writeToDisk() on an instance of this class. See __main__ for options.
+See open_edx_export_class/src/exportClass.py for example of using
+this module as a library.</p>
+<p>Assumes availability of the following DB table, which is generated 
+via script prepEngagementAnalysis.sh 
+mysql&gt; DESCRIBE Activities;</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="28%" />
+<col width="19%" />
+<col width="8%" />
+<col width="7%" />
+<col width="28%" />
+<col width="9%" />
+</colgroup>
+<thead valign="bottom">
+<tr class="row-odd"><th class="head">Field</th>
+<th class="head">Type</th>
+<th class="head">Null</th>
+<th class="head">Key</th>
+<th class="head">Default</th>
+<th class="head">Extra</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr class="row-even"><td>course_display_name</td>
+<td>varchar(255)</td>
+<td>NO</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-odd"><td>anon_screen_name</td>
+<td>text</td>
+<td>NO</td>
+<td>&nbsp;</td>
+<td>NULL</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-even"><td>event_type</td>
+<td>text</td>
+<td>NO</td>
+<td>&nbsp;</td>
+<td>NULL</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-odd"><td>time</td>
+<td>datetime</td>
+<td>NO</td>
+<td>&nbsp;</td>
+<td>0000-00-00 00:00:00</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-even"><td>isVideo</td>
+<td>tinyint(4)</td>
+<td>NO</td>
+<td>&nbsp;</td>
+<td>0</td>
+<td>&nbsp;</td>
+</tr>
+</tbody>
+</table>
+<p>Example rows:</p>
+<div class="highlight-python"><pre>| Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | seek_video | 2013-07-20 22:56:36      | 1 |
+| Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | hide_transcript | 2013-07-20 22:57:28 | 0 |
+| Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | play_video | 2013-07-20 22:59:36      | 1 |</pre>
+</div>
+<p>To use, instantiate EngagementComputer, call the run() method,
+and then the writeResultsToDisk() method.</p>
+<p>The output are three files: /tmp/engagement.log,  /tmp/engagementAllCourses_summary.csv,
+and /tmp/engagementAllCourses_allData.csv. The summary file:</p>
+<p>TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty</p>
+<ul>
+<li><dl class="first docutils">
+<dt>TotalStudentSessions: the total number of sessions in which at least one minute of time</dt>
+<dd><p class="first last">engagement occurred. This counts all sessions for all students.</p>
+</dd>
+</dl>
+</li>
+<li><p class="first">TotalEffortAllStudents: total number of engagement minutes across all student.</p>
+</li>
+<li><dl class="first docutils">
+<dt>MedPerWeekOneToTwenty: the number of weeks in which a median of 1 to 20 minutes of time engagement </dt>
+<dd><p class="first last">was observed, counting each student, each week.</p>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>MedPerWeekTwentyoneToSixty: the number of weeks in which a median of 21min to 1hr of time engagement </dt>
+<dd><p class="first last">was observed, counting each student, each week.</p>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>MedPerWeekGreaterSixty: the number of weeks in which a median &gt;1hr of time engagement </dt>
+<dd><p class="first last">was observed, counting each student, each week.</p>
+</dd>
+</dl>
+</li>
+</ul>
+<p>The engagementAllCourses_allData.csv contains every session of every student.</p>
+<blockquote>
+<div><p>Platform,Course,anon_screen_name,Date,Time,SessionLength</p>
+<ul class="simple">
+<li>Platform: always OpenEdX</li>
+<li>Course: full name of course (course_display_name)</li>
+<li>anon_screen_name: anon_screen_name</li>
+<li>Date: date of session</li>
+<li>Time: time of session</li>
+<li>SessionLength: length of session in minutes</li>
+</ul>
+</div></blockquote>
+<p>&#64;author: paepcke</p>
+<dl class="class">
+<dt id="src.engagement.EngagementComputer">
+<em class="property">class </em><tt class="descclassname">src.engagement.</tt><tt class="descname">EngagementComputer</tt><big>(</big><em>coursesStartYearsArr</em>, <em>dbHost</em>, <em>dbName</em>, <em>tableName</em>, <em>mySQLUser=None</em>, <em>mySQLPwd=None</em>, <em>courseToProfile=None</em>, <em>sessionInactivityThreshold=30</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></p>
+<dl class="attribute">
+<dt id="src.engagement.EngagementComputer.EVENT_XTRACT_TABLE_DB">
+<tt class="descname">EVENT_XTRACT_TABLE_DB</tt><em class="property"> = 'Edx'</em><a class="headerlink" href="#src.engagement.EngagementComputer.EVENT_XTRACT_TABLE_DB" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="src.engagement.EngagementComputer.FAKE_COURSE_PATTERN">
+<tt class="descname">FAKE_COURSE_PATTERN</tt><em class="property"> = &lt;_sre.SRE_Pattern object at 0x3118710&gt;</em><a class="headerlink" href="#src.engagement.EngagementComputer.FAKE_COURSE_PATTERN" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="src.engagement.EngagementComputer.NON_VIDEO_EVENT_DURATION">
+<tt class="descname">NON_VIDEO_EVENT_DURATION</tt><em class="property"> = 5</em><a class="headerlink" href="#src.engagement.EngagementComputer.NON_VIDEO_EVENT_DURATION" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="src.engagement.EngagementComputer.VIDEO_EVENT_DURATION">
+<tt class="descname">VIDEO_EVENT_DURATION</tt><em class="property"> = 15</em><a class="headerlink" href="#src.engagement.EngagementComputer.VIDEO_EVENT_DURATION" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.addTimeToSession">
+<tt class="descname">addTimeToSession</tt><big>(</big><em>dateTimePrevEvent</em>, <em>dateTimeCurrEvent</em>, <em>isVideo</em>, <em>timeSpentSoFar</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.addTimeToSession" title="Permalink to this definition">¶</a></dt>
+<dd><p>Called when a new event by a student is being processed. Adds the
+event time to self.timeSpentThisSession. If time since previous
+event &gt; self.sessionInactivityThreshold, the current session is finalized, and
+a new session is started.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>dateTimePrevEvent</strong> &#8211; </li>
+<li><strong>dateTimeCurrEvent</strong> &#8211; </li>
+<li><strong>isVideo</strong> &#8211; </li>
+<li><strong>timeSpentSoFar</strong> &#8211; </li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.allDataIterator">
+<tt class="descname">allDataIterator</tt><big>(</big><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.allDataIterator" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.filterCourses">
+<tt class="descname">filterCourses</tt><big>(</big><em>currEvent</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.filterCourses" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.filterStudents">
+<tt class="descname">filterStudents</tt><big>(</big><em>anon_screen_name</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.filterStudents" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.getCourseRuntime">
+<tt class="descname">getCourseRuntime</tt><big>(</big><em>courseName</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.getCourseRuntime" title="Permalink to this definition">¶</a></dt>
+<dd><p>Query Edx.EventXtract for the earliest and latest events in the
+given course.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>courseName</strong> (<em>String</em>) &#8211; name of course whose times are to be found</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">Two-tuple with start and end time. May be (None, None) if times 
+could not be found</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body">(datetime, datetime)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.getVideoLength">
+<tt class="descname">getVideoLength</tt><big>(</big><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.getVideoLength" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.log">
+<tt class="descname">log</tt><big>(</big><em>msg</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.log" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.logErr">
+<tt class="descname">logErr</tt><big>(</big><em>msg</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.logErr" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.run">
+<tt class="descname">run</tt><big>(</big><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.run" title="Permalink to this definition">¶</a></dt>
+<dd><p>Run the analysis. In spite of this method name, the EngagementComputer
+class is not a thread. Goes through every wanted course and every student
+within that course. Partitions student activity times into sessions, and
+does the accounting.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.wrapUpCourse">
+<tt class="descname">wrapUpCourse</tt><big>(</big><em>courseName</em>, <em>studentSessionsDict</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.wrapUpCourse" title="Permalink to this definition">¶</a></dt>
+<dd><p>Called when all students of one class have been
+processed. This method receives a dict that maps
+each student of the class being closed out to 
+an array of that student&#8217;s session times and lenghts. 
+For each student session, the dict value is an
+array of two-tuples: (sessionStartTime,sessionLength).
+The studentSessionsDict thus looks like this:</p>
+<blockquote>
+<div><dl class="docutils">
+<dt>{student1 <span class="classifier-delimiter">:</span> <span class="classifier">[(firstTimeS1, 10), (secondTimeS1, 4), ...]</span></dt>
+<dd>student2 : [(firstTimeS2, 10), (secondTimeS2, 4), ...]</dd>
+</dl>
+</div></blockquote>
+<p>Important: The times within each array are sorted, so
+sessionStartTime_n+1 &gt; sessionStartTime_n.
+We take advantage of this fact to optimize.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>studentSessionsDict</strong> &#8211; </td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.wrapUpSession">
+<tt class="descname">wrapUpSession</tt><big>(</big><em>currentStudent</em>, <em>wasVideo</em>, <em>timeSpentSoFar</em>, <em>dateTimeNewSessionStart</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.wrapUpSession" title="Permalink to this definition">¶</a></dt>
+<dd><p>A student event is more than self.sessionInactivityThreshold after the previous
+event by the same student in the same class.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>currentStudent</strong> (<a class="reference external" href="http://docs.python.org/library/string.html#string" title="(in Python v2.7)"><em>string</em></a>) &#8211; student who is currently under analysis</li>
+<li><strong>wasVideo</strong> (<em>boolean</em>) &#8211; whether or not the current event is a video event</li>
+<li><strong>timeSpentSoFar</strong> (<a class="reference external" href="http://docs.python.org/library/datetime.html#datetime" title="(in Python v2.7)"><em>datetime</em></a>) &#8211; cumulative time spent by this student in this session</li>
+<li><strong>dateTimeNewSessionStart</strong> (<a class="reference external" href="http://docs.python.org/library/datetime.html#datetime" title="(in Python v2.7)"><em>datetime</em></a>) &#8211; when the upcoming session will start (i.e. current event&#8217;s time)</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.wrapUpStudent">
+<tt class="descname">wrapUpStudent</tt><big>(</big><em>anonStudent</em>, <em>wasVideo</em>, <em>timeSpentSoFar</em><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.wrapUpStudent" title="Permalink to this definition">¶</a></dt>
+<dd><p>Last event for a student in one course</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>studentSessions</strong> &#8211; </li>
+<li><strong>studentAnon</strong> &#8211; </li>
+<li><strong>eventTime</strong> &#8211; </li>
+<li><strong>wasVideo</strong> (<em>Boolean</em>) &#8211; was previous event video?</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="src.engagement.EngagementComputer.writeResultsToDisk">
+<tt class="descname">writeResultsToDisk</tt><big>(</big><big>)</big><a class="headerlink" href="#src.engagement.EngagementComputer.writeResultsToDisk" title="Permalink to this definition">¶</a></dt>
+<dd><p>Assumes that run() has been called, and that therefore 
+instance self.classStats is a dictionary with all computed
+stats for each class. Computes three final results, and writes
+them to three temp files. Returns three-tuple with names of
+those files. The files are tempfiles, and will therefore not
+be overwritten by multiple successive calls.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Tri-tuple with paths to three files:
+outFileSummary: one line per course with total sessions, cumulative median weekly effort and such.
+outFileAll: big file with all sessions of each student in each class
+outFileWeeklyEffort: shows sum of weekly efforts for each student, week by week.</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">(string,string,string)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">src Package</a><ul>
+<li><a class="reference internal" href="#module-src.engagement"><tt class="docutils literal"><span class="pre">engagement</span></tt> Module</a></li>
+</ul>
+</li>
+</ul>
+
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/src.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="index.html">online_learning_computations 0.27 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2014, Andreas Paepcke.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

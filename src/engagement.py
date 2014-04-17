@@ -17,17 +17,23 @@ this module as a library.
 Assumes availability of the following DB table, which is generated 
 via script prepEngagementAnalysis.sh 
 mysql> DESCRIBE Activities;
+
 +---------------------+--------------+------+-----+---------------------+-------+
 | Field               | Type         | Null | Key | Default             | Extra |
-+---------------------+--------------+------+-----+---------------------+-------+
++=====================+==============+======+=====+=====================+=======+
 | course_display_name | varchar(255) | NO   |     |                     |       |
++---------------------+--------------+------+-----+---------------------+-------+
 | anon_screen_name    | text         | NO   |     | NULL                |       |
++---------------------+--------------+------+-----+---------------------+-------+
 | event_type          | text         | NO   |     | NULL                |       |
++---------------------+--------------+------+-----+---------------------+-------+
 | time                | datetime     | NO   |     | 0000-00-00 00:00:00 |       |
++---------------------+--------------+------+-----+---------------------+-------+
 | isVideo             | tinyint(4)   | NO   |     | 0                   |       |
-+---------------------+--------------+------+-----+---------------------+-------
++---------------------+--------------+------+-----+---------------------+-------+
 
-Example rows:
+Example rows::
+
 | Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | seek_video | 2013-07-20 22:56:36      | 1 |
 | Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | hide_transcript | 2013-07-20 22:57:28 | 0 |
 | Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | play_video | 2013-07-20 22:59:36      | 1 |
@@ -41,14 +47,14 @@ and /tmp/engagementAllCourses_allData.csv. The summary file:
 
 TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty
 
-- TotalStudentSessions: the total number of sessions in which at least one minute of time
+* TotalStudentSessions: the total number of sessions in which at least one minute of time
                         engagement occurred. This counts all sessions for all students.
-- TotalEffortAllStudents: total number of engagement minutes across all student.                         
-- MedPerWeekOneToTwenty: the number of weeks in which a median of 1 to 20 minutes of time engagement 
+* TotalEffortAllStudents: total number of engagement minutes across all student.                         
+* MedPerWeekOneToTwenty: the number of weeks in which a median of 1 to 20 minutes of time engagement 
                          was observed, counting each student, each week.
-- MedPerWeekTwentyoneToSixty: the number of weeks in which a median of 21min to 1hr of time engagement 
+* MedPerWeekTwentyoneToSixty: the number of weeks in which a median of 21min to 1hr of time engagement 
                          was observed, counting each student, each week.
-- MedPerWeekGreaterSixty: the number of weeks in which a median >1hr of time engagement 
+* MedPerWeekGreaterSixty: the number of weeks in which a median >1hr of time engagement 
                          was observed, counting each student, each week.
                         
 
@@ -56,12 +62,12 @@ The engagementAllCourses_allData.csv contains every session of every student.
 
  Platform,Course,anon_screen_name,Date,Time,SessionLength
  
- - Platform: always OpenEdX
- - Course: full name of course (course_display_name)
- - anon_screen_name: anon_screen_name
- - Date: date of session
- - Time: time of session
- - SessionLength: length of session in minutes
+ * Platform: always OpenEdX
+ * Course: full name of course (course_display_name)
+ * anon_screen_name: anon_screen_name
+ * Date: date of session
+ * Time: time of session
+ * SessionLength: length of session in minutes
  
 
 @author: paepcke
@@ -117,30 +123,31 @@ class EngagementComputer(object):
         '''
         Sets up one session-accounting run through a properly filled table (as
         per file level comment above.
-        @param coursesStartYearsArr: array of the years during which courses under investigation ran.
+
+        :param coursesStartYearsArr: array of the years during which courses under investigation ran.
             If None, then any course (or unconditionally the one matching the courseToProfile if 
             that parm is provided) will be processed. 
-        @type coursesStartYearsArr: {[int] | None}
-        @param dbHost: MySQL host where the activities table resides 
-        @type dbHost: string
-        @param dbName: name of db within server in which the activities table resides. Use 
+        :type coursesStartYearsArr: {[int] | None}
+        :param dbHost: MySQL host where the activities table resides 
+        :type dbHost: string
+        :param dbName: name of db within server in which the activities table resides. Use 
             this parameter to place test tables into, say the 'test' database. Point this dbName
             parameter to 'test' and all ops will look for the Activities table and CourseRuntimes
             table in that db.
-        @type dbName: string
-        @param tableName: name of table that holds the activities as per file level header. 
-        @type tableName: string
-        @param mySQLUser: user under which to log into MySQL for the work
-        @type mySQLUser: string
-        @param mySQLPwd: password to use for MySQL
-        @type mySQLPwd: string
-        @param courseToProfile: name of course to analyze for sessions. If None all courses 
+        :type dbName: string
+        :param tableName: name of table that holds the activities as per file level header. 
+        :type tableName: string
+        :param mySQLUser: user under which to log into MySQL for the work
+        :type mySQLUser: string
+        :param mySQLPwd: password to use for MySQL
+        :type mySQLPwd: string
+        :param courseToProfile: name of course to analyze for sessions. If None all courses 
              that started in one of the years listed in coursesStartYearArr will be examined. 
-        @type courseToProfile: [string]
-        @param sessionInactivityThreshold: time in minutes of student inactivity beyond which 
+        :type courseToProfile: [string]
+        :param sessionInactivityThreshold: time in minutes of student inactivity beyond which 
                it is concluded that the student is no longer working on the computer in the
                current session.
-        @type sessionInactivityThreshold: int
+        :type sessionInactivityThreshold: int
         '''
         self.dbHost = dbHost
         self.dbName = dbName
@@ -313,14 +320,15 @@ class EngagementComputer(object):
         event time to self.timeSpentThisSession. If time since previous
         event > self.sessionInactivityThreshold, the current session is finalized, and
         a new session is started.
-        @param dateTimePrevEvent:
-        @type dateTimePrevEvent:
-        @param dateTimeCurrEvent:
-        @type dateTimeCurrEvent:
-        @param isVideo:
-        @type isVideo:
-        @param timeSpentSoFar:
-        @type timeSpentSoFar:
+
+        :param dateTimePrevEvent:
+        :type dateTimePrevEvent:
+        :param dateTimeCurrEvent:
+        :type dateTimeCurrEvent:
+        :param isVideo:
+        :type isVideo:
+        :param timeSpentSoFar:
+        :type timeSpentSoFar:
         '''
         if self.sessionStartTime == 0:
             self.sessionStartTime = dateTimeCurrEvent
@@ -335,14 +343,15 @@ class EngagementComputer(object):
     def wrapUpStudent(self, anonStudent, wasVideo, timeSpentSoFar):
         '''
         Last event for a student in one course
-        @param studentSessions:
-        @type studentSessions:
-        @param studentAnon:
-        @type studentAnon:
-        @param eventTime:
-        @type eventTime:
-        @param wasVideo: was previous event video?
-        @type wasVideo: Boolean
+
+        :param studentSessions:
+        :type studentSessions:
+        :param studentAnon:
+        :type studentAnon:
+        :param eventTime:
+        :type eventTime:
+        :param wasVideo: was previous event video?
+        :type wasVideo: Boolean
         '''
         pass
     
@@ -350,14 +359,15 @@ class EngagementComputer(object):
         '''
         A student event is more than self.sessionInactivityThreshold after the previous
         event by the same student in the same class.
-        @param currentStudent: student who is currently under analysis
-        @type currentStudent: string
-        @param wasVideo: whether or not the current event is a video event
-        @type wasVideo: boolean
-        @param timeSpentSoFar: cumulative time spent by this student in this session
-        @type timeSpentSoFar: datetime
-        @param dateTimeNewSessionStart: when the upcoming session will start (i.e. current event's time)
-        @type dateTimeNewSessionStart: datetime
+
+        :param currentStudent: student who is currently under analysis
+        :type currentStudent: string
+        :param wasVideo: whether or not the current event is a video event
+        :type wasVideo: boolean
+        :param timeSpentSoFar: cumulative time spent by this student in this session
+        :type timeSpentSoFar: datetime
+        :param dateTimeNewSessionStart: when the upcoming session will start (i.e. current event's time)
+        :type dateTimeNewSessionStart: datetime
         '''
         if wasVideo:
             newTimeSpentSoFar = timeSpentSoFar + self.getVideoLength()
@@ -387,8 +397,9 @@ class EngagementComputer(object):
         Important: The times within each array are sorted, so
         sessionStartTime_n+1 > sessionStartTime_n.
         We take advantage of this fact to optimize.
-        @param studentSessionsDict:
-        @type studentSessionsDict:
+
+        :param studentSessionsDict:
+        :type studentSessionsDict:
         '''
         try:
             # Data struct to hold student --> [[week0,x],[week1,y],...],
@@ -530,11 +541,13 @@ class EngagementComputer(object):
         '''
         Query Edx.EventXtract for the earliest and latest events in the
         given course.
-        @param courseName: name of course whose times are to be found
-        @type courseName: String
-        @return: Two-tuple with start and end time. May be (None, None) if times 
+
+        :param courseName: name of course whose times are to be found
+        :type courseName: String
+        :return: Two-tuple with start and end time. May be (None, None) if times 
             could not be found
-        @rtype: (datetime, datetime)
+
+        :rtype: (datetime, datetime)
         '''
         try:
             try:
@@ -592,11 +605,12 @@ class EngagementComputer(object):
         those files. The files are tempfiles, and will therefore not
         be overwritten by multiple successive calls.
         
-        @return: Tri-tuple with paths to three files:
+        :return: Tri-tuple with paths to three files:
                  outFileSummary: one line per course with total sessions, cumulative median weekly effort and such.
                  outFileAll: big file with all sessions of each student in each class
                  outFileWeeklyEffort: shows sum of weekly efforts for each student, week by week.
-        @rtype: (string,string,string)
+
+        :rtype: (string,string,string)
         '''
         if self.courseToProfile is None:
             # Analysis was requested for all courses.
