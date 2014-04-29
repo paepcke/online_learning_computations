@@ -5,9 +5,15 @@ Created on Feb 12, 2014
 @author: paepcke
 '''
 import argparse
+from collections import OrderedDict
 import getpass
 import os
 import sys
+
+from pymysql_utils.pymysql_utils import MySQLDB
+
+from ipToCountry import IpCountryDict
+
 
 # Add json_to_relation source dir to $PATH
 # for duration of this execution:
@@ -15,8 +21,6 @@ source_dir = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../js
 source_dir.extend(sys.path)
 sys.path = source_dir
 
-from mysqldb import MySQLDB 
-from ipToCountry import IpCountryDict
 
 
 class UserCountryTableCreator(object):
@@ -30,10 +34,10 @@ class UserCountryTableCreator(object):
         self.db = MySQLDB(user=self.user, passwd=self.pwd, db='Edx')
         self.db.dropTable(UserCountryTableCreator.DEST_TABLE)
         self.db.createTable(UserCountryTableCreator.DEST_TABLE, 
-                                           {'anon_screen_name' : 'varchar(40) NOT NULL DEFAULT ""',
+                                           OrderedDict({'anon_screen_name' : 'varchar(40) NOT NULL DEFAULT ""',
                                             'two_letter_country' : 'varchar(2) NOT NULL DEFAULT ""',
                                             'three_letter_country' : 'varchar(3) NOT NULL DEFAULT ""',
-                                            'country' : 'varchar(255) NOT NULL DEFAULT ""'})
+                                            'country' : 'varchar(255) NOT NULL DEFAULT ""'}))
         
     def fillTable(self):
         values = []
