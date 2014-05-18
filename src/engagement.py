@@ -100,7 +100,7 @@ sys.path = source_dir
 class EngagementComputer(object):
     
     # Time duration counted for any video event (minutes):
-    VIDEO_EVENT_DURATION = 15
+    VIDEO_EVENT_DURATION = 5
     
     # Time duration counted for any non-video event (minutes):
     NON_VIDEO_EVENT_DURATION = 5
