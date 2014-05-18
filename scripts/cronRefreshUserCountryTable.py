@@ -52,7 +52,9 @@ class UserCountryTableCreator(object):
         colNameTuple = ('anon_screen_name','two_letter_country','three_letter_country','country')
         self.db.bulkInsert(UserCountryTableCreator.DEST_TABLE, colNameTuple, values)
         self.db.close()
-            
+
+    def makeIndex(self):
+        self.db.execute("CALL createIndexIfNotExists('UserCountryAnonIdx', 'UserCountry', 'anon_screen_name', 40);")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]), formatter_class=argparse.RawTextHelpFormatter)
@@ -95,4 +97,5 @@ if __name__ == '__main__':
                 pwd = ''
     tblCreator = UserCountryTableCreator(user, pwd)
     tblCreator.fillTable()
+    tblCreator.makeIndex()
     
