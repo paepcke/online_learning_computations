@@ -12,7 +12,7 @@ UNION
             anon_screen_name,
 	    'forum' AS event_type,
 	    created_at AS time
-      FROM EdxPrivate.ForumRaw
+      FROM EdxForum.contents
 GROUP BY course_display_name
 ORDER BY anon_screen_name;
 
