@@ -114,8 +114,6 @@ class EngagementComputer(object):
     def __init__(self, 
                 coursesStartYearsArr, 
                 dbHost, 
-                dbName, 
-                tableName, 
                 mySQLUser=None, 
                 mySQLPwd=None, 
                 courseToProfile=None, 
@@ -130,13 +128,6 @@ class EngagementComputer(object):
         :type coursesStartYearsArr: {[int] | None}
         :param dbHost: MySQL host where the activities table resides 
         :type dbHost: string
-        :param dbName: name of db within server in which the activities table resides. Use 
-            this parameter to place test tables into, say the 'test' database. Point this dbName
-            parameter to 'test' and all ops will look for the Activities table and CourseRuntimes
-            table in that db.
-        :type dbName: string
-        :param tableName: name of table that holds the activities as per file level header. 
-        :type tableName: string
         :param mySQLUser: user under which to log into MySQL for the work
         :type mySQLUser: string
         :param mySQLPwd: password to use for MySQL
@@ -150,8 +141,7 @@ class EngagementComputer(object):
         :type sessionInactivityThreshold: int
         '''
         self.dbHost = dbHost
-        self.dbName = dbName
-        self.tableName = tableName
+        self.dbName = 'Edx'
         self.mySQLUser = mySQLUser
         self.mySQLPwd  = mySQLPwd
         if courseToProfile == "None":
@@ -179,7 +169,7 @@ class EngagementComputer(object):
                 self.mySQLPwd = ''
         # Place to hold all stats for one class
         self.classStats = {}
-        self.db = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db=dbName)
+        self.db = MySQLDB(host=self.dbHost, user=self.mySQLUser, passwd=self.mySQLPwd, db='Edx')
         
     def run(self):
         '''
@@ -213,11 +203,55 @@ class EngagementComputer(object):
             queryEndTimeReported = False
             if self.courseToProfile is None:
                 # Profile all courses:
-                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s ORDER BY course_display_name, anon_screen_name, time;' %
-                                              self.tableName)
+                mysqlCmd = "SELECT * \
+		  	                FROM  (\
+		  	                	SELECT course_display_name,\
+		  	                	       anon_screen_name,\
+		  	                	       event_type,\
+		  	                	       time,\
+		  	                	       IF((event_type = 'load_video' OR event_type = 'play_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0)\
+		  	                       	          AS isVideo\
+		  	                	FROM Edx.EventXtract \
+		  	                     ) AS MainEvents\
+		  	                UNION ALL \
+		  	                SELECT * \
+		  	                FROM (\
+		  	                        SELECT course_display_name,\
+		  	                               anon_screen_name,\
+		  	                    	       'forum' AS event_type,\
+		  	                    	       created_at AS time,\
+		  	                	       0 AS isVideo\
+		  	                         FROM EdxForum.contents\
+		  	                     ) AS ForumEvents\
+		  	                GROUP BY course_display_name \
+		  	                ORDER BY anon_screen_name;"              
             else:
-                queryIterator = self.db.query('SELECT course_display_name, anon_screen_name, time, isVideo FROM %s WHERE course_display_name = "%s" ORDER BY anon_screen_name, time;' %\
-                                              (self.tableName, self.courseToProfile))
+                mysqlCmd = "SELECT * \
+	  	                FROM  (\
+	  	                	SELECT course_display_name,\
+	  	                	       anon_screen_name,\
+	  	                	       event_type,\
+	  	                	       time,\
+	  	                	       IF((event_type = 'load_video' OR event_type = 'play_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0)\
+	  	                       	          AS isVideo\
+	  	                	FROM Edx.EventXtract \
+	  	                	WHERE course_display_name = '%s'\
+	  	                     ) AS MainEvents\
+	  	                UNION ALL \
+	  	                SELECT * \
+	  	                FROM (\
+	  	                        SELECT course_display_name,\
+	  	                               anon_screen_name,\
+	  	                    	       'forum' AS event_type,\
+	  	                    	       created_at AS time,\
+	  	                	       0 AS isVideo\
+	  	                         FROM EdxForum.contents\
+	  	                     ) AS ForumEvents\
+	  	                GROUP BY course_display_name \
+	  	                ORDER BY anon_screen_name;" % self.courseToProfile
+                
+                
+            queryIterator = self.db.query(mysqlCmd)
                 
             for activityRecord in queryIterator:
                 if not queryEndTimeReported:
@@ -757,11 +791,10 @@ if __name__ == '__main__':
         
     # -------------- Run the Computation ---------------
 
-    db = 'Misc'
     invokingUser = getpass.getuser()
     # Set mysql password to None, which will cause
     # the __init__() method to check ~/.ssh... 
-    comp = EngagementComputer(years, 'localhost', db, 'Activities', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseName)
+    comp = EngagementComputer(years, 'localhost', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseName)
     comp.run()
     
     # -------------- Output Results to Disk ---------------
