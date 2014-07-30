@@ -14,31 +14,6 @@ writeToDisk() on an instance of this class. See __main__ for options.
 See open_edx_export_class/src/exportClass.py for example of using
 this module as a library.
 
-Assumes availability of the following DB table, which is generated 
-via script prepEngagementAnalysis.sh 
-mysql> DESCRIBE Activities;
-
-+---------------------+--------------+------+-----+---------------------+-------+
-| Field               | Type         | Null | Key | Default             | Extra |
-+=====================+==============+======+=====+=====================+=======+
-| course_display_name | varchar(255) | NO   |     |                     |       |
-+---------------------+--------------+------+-----+---------------------+-------+
-| anon_screen_name    | text         | NO   |     | NULL                |       |
-+---------------------+--------------+------+-----+---------------------+-------+
-| event_type          | text         | NO   |     | NULL                |       |
-+---------------------+--------------+------+-----+---------------------+-------+
-| time                | datetime     | NO   |     | 0000-00-00 00:00:00 |       |
-+---------------------+--------------+------+-----+---------------------+-------+
-| isVideo             | tinyint(4)   | NO   |     | 0                   |       |
-+---------------------+--------------+------+-----+---------------------+-------+
-
-Example rows::
-
-| Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | seek_video | 2013-07-20 22:56:36      | 1 |
-| Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | hide_transcript | 2013-07-20 22:57:28 | 0 |
-| Education/EDUC115N/How_to_Learn_Math | 00014bffc716bf9d8d656d2f668f737cd43acde8 | play_video | 2013-07-20 22:59:36      | 1 |
-
-
 To use, instantiate EngagementComputer, call the run() method,
 and then the writeResultsToDisk() method.   
 
@@ -177,6 +152,51 @@ class EngagementComputer(object):
         class is not a thread. Goes through every wanted course and every student
         within that course. Partitions student activity times into sessions, and
         does the accounting.
+        
+        Method uses one of two queries as source for session information:
+        one query is used when no course name is provided, and engagement
+        is thus computed for all courses, the alternative query is used
+        when computation is limited to a single course. Here is an explanation 
+        of the query, which creates this table: 
+
+             course_display_name, anon_screen_name, time, isVideo
+        
+        with one row for each event. The query with comments:
+        
+        -- 'select *' idiom needed to make MySQL use indexes in query optimizer 
+          SELECT *
+		  FROM  (
+	    -- Grab all events, creating binary 1/0 column 'isVideo' on the fly.
+	    -- With the latest approach of using mean time between events by one
+	    -- student as default duration for the last event in a session, this isVideo
+	    -- column is no longer relevant. It stays included in case we change our mind
+	    -- and wish to distinguish between video, and other event types after all:
+		  	       SELECT course_display_name,
+		  	              anon_screen_name,
+		  	              time,
+		  	              IF((event_type = 'load_video' OR 
+		  	                  event_type = 'play_video' OR 
+		  	                  event_type = 'pause_video' OR 
+		  	                  event_type = 'seek_video' OR 
+		  	                  event_type = 'speed_change_video'),1,0)
+		  	                 AS isVideo
+		  	       FROM Edx.EventXtract
+		  	    ) AS MainEvents
+		  	    
+		 -- Union these events with Forum events
+		  UNION ALL
+		  	    
+		  SELECT * 
+		  FROM  (
+		  	       SELECT course_display_name,\\
+		  	              EdxPrivate.idInt2Anon(forum_uid),
+		  	              created_at AS time,
+		  	              0 AS isVideo
+		  	       FROM EdxForum.contents
+		  	    ) AS ForumEvents
+		  GROUP BY course_display_name
+		  ORDER BY anon_screen_name, time;"            
+        
         '''
         self.studentSessionsDict   = {}
         # For saving all sessions for all students across all classes:
@@ -207,7 +227,6 @@ class EngagementComputer(object):
 		  	                FROM  (\
 		  	                	SELECT course_display_name,\
 		  	                	       anon_screen_name,\
-		  	                	       event_type,\
 		  	                	       time,\
 		  	                	       IF((event_type = 'load_video' OR event_type = 'play_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0)\
 		  	                       	          AS isVideo\
@@ -217,20 +236,18 @@ class EngagementComputer(object):
 		  	                SELECT * \
 		  	                FROM (\
 		  	                        SELECT course_display_name,\
-		  	                               anon_screen_name,\
-		  	                    	       'forum' AS event_type,\
+		  	                               EdxPrivate.idForum2Anon(forum_uid),\
 		  	                    	       created_at AS time,\
 		  	                	       0 AS isVideo\
 		  	                         FROM EdxForum.contents\
 		  	                     ) AS ForumEvents\
 		  	                GROUP BY course_display_name \
-		  	                ORDER BY anon_screen_name;"              
+		  	                ORDER BY anon_screen_name, time;"              
             else:
                 mysqlCmd = "SELECT * \
 	  	                FROM  (\
 	  	                	SELECT course_display_name,\
 	  	                	       anon_screen_name,\
-	  	                	       event_type,\
 	  	                	       time,\
 	  	                	       IF((event_type = 'load_video' OR event_type = 'play_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0)\
 	  	                       	          AS isVideo\
@@ -241,14 +258,13 @@ class EngagementComputer(object):
 	  	                SELECT * \
 	  	                FROM (\
 	  	                        SELECT course_display_name,\
-	  	                               anon_screen_name,\
-	  	                    	       'forum' AS event_type,\
+	  	                               EdxPrivate.idForum2Anon(forum_uid),\
 	  	                    	       created_at AS time,\
 	  	                	       0 AS isVideo\
 	  	                         FROM EdxForum.contents\
 	  	                     ) AS ForumEvents\
 	  	                GROUP BY course_display_name \
-	  	                ORDER BY anon_screen_name;" % self.courseToProfile
+	  	                ORDER BY anon_screen_name, time;" % self.courseToProfile
                 
                 
             queryIterator = self.db.query(mysqlCmd)
@@ -269,7 +285,8 @@ class EngagementComputer(object):
                     #... or a ghost student:
                     if self.filterStudents(currEvent['anon_screen_name']):
                         continue
-                    if len(currEvent['anon_screen_name']) > 0 and\
+                    if currEvent.get('anon_screen_name', None) is not None and\
+                       len(currEvent['anon_screen_name']) > 0 and\
                        len(currEvent['course_display_name']) > 0:
                         self.currStudent = currEvent['anon_screen_name']
                         self.currCourse  = currEvent['course_display_name']
