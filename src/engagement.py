@@ -74,11 +74,15 @@ sys.path = source_dir
 
 class EngagementComputer(object):
     
-    # Time duration counted for any video event (minutes):
-    VIDEO_EVENT_DURATION = 5
+    # Time duration counted for any video event (minutes);
+    # This is the median time between clicks across all
+    # events:
+    VIDEO_EVENT_DURATION = 504/60
     
-    # Time duration counted for any non-video event (minutes):
-    NON_VIDEO_EVENT_DURATION = 5
+    # Time duration counted for any non-video event (minutes);
+    # This is the median time between clicks across all
+    # events:
+    NON_VIDEO_EVENT_DURATION = 504/60
     
     # Database that contains EventXtract table:
     EVENT_XTRACT_TABLE_DB = 'Edx'
@@ -225,66 +229,46 @@ class EngagementComputer(object):
                 # Profile all courses:
                 mysqlCmd = "SELECT * \
 		  	                FROM  (\
-		  	                	SELECT course_display_name,\
-		  	                	       anon_screen_name,\
-		  	                	       time,\
-		  	                	       IF((event_type = 'load_video' OR event_type = 'play_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0)\
-		  	                       	          AS isVideo\
-		  	                	FROM Edx.EventXtract \
-		  	                     ) AS MainEvents\
-		  	                UNION ALL \
-		  	                SELECT * \
-		  	                FROM (\
-		  	                        SELECT course_display_name,\
-		  	                               EdxPrivate.idForum2Anon(forum_uid),\
-		  	                    	       created_at AS time,\
-		  	                	       0 AS isVideo\
-		  	                         FROM EdxForum.contents\
-		  	                     ) AS ForumEvents\
-		  	                GROUP BY course_display_name \
-		  	                ORDER BY anon_screen_name, time;"              
+		  	                	     SELECT course_display_name, anon_screen_name, time, IF((event_type = 'play_video'),1,0) AS isVideo \
+		  	                	     FROM Edx.EventXtract \
+		  	                    UNION ALL \
+		  	                        SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo \
+		  	                        FROM EdxForum.contents \
+		  	                      ) AS AllData\
+		  	                ORDER BY course_display_name, anon_screen_name, time;"              
             else:
                 mysqlCmd = "SELECT * \
-	  	                FROM  (\
-	  	                	SELECT course_display_name,\
-	  	                	       anon_screen_name,\
-	  	                	       time,\
-	  	                	       IF((event_type = 'load_video' OR event_type = 'play_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0)\
-	  	                       	          AS isVideo\
-	  	                	FROM Edx.EventXtract \
-	  	                	WHERE course_display_name = '%s'\
-	  	                     ) AS MainEvents\
-	  	                UNION ALL \
-	  	                SELECT * \
-	  	                FROM (\
-	  	                        SELECT course_display_name,\
-	  	                               EdxPrivate.idForum2Anon(forum_uid),\
-	  	                    	       created_at AS time,\
-	  	                	       0 AS isVideo\
-	  	                         FROM EdxForum.contents\
-	  	                     ) AS ForumEvents\
-	  	                GROUP BY course_display_name \
-	  	                ORDER BY anon_screen_name, time;" % self.courseToProfile
-                
+		  	                FROM  (\
+		  	                	     SELECT course_display_name, anon_screen_name, time, IF((event_type = 'play_video'),1,0) AS isVideo \
+		  	                	     FROM Edx.EventXtract \
+		  	                	     WHERE course_display_name = '%s'\
+		  	                    UNION ALL \
+		  	                        SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo \
+		  	                        FROM EdxForum.contents \
+		  	                        WHERE course_display_name = '%s'\
+		  	                      ) AS AllData\
+		  	                ORDER BY course_display_name, anon_screen_name, time;" % (self.courseToProfile, self.courseToProfile)              
                 
             queryIterator = self.db.query(mysqlCmd)
                 
             for activityRecord in queryIterator:
                 if not queryEndTimeReported:
                     self.log('Query done in %s' % str(datetime.timedelta(seconds=(time.time() - queryStartTime))))
+                    self.log('Beginning computation.')
                     queryEndTimeReported = True
                 currEvent = {'course_display_name' : activityRecord[COURSE_INDEX],
                              'anon_screen_name'    : activityRecord[STUDENT_INDEX],
                              'eventDateTime'       : activityRecord[TIME_INDEX], 
                              'isVideo'             : activityRecord[IS_VIDEO_INDEX]}
+                # Check whether it's a demo or sandbox course:
+                if self.filterCourses(currEvent):
+                    continue
+                
+                # Is this an invalid student?                
+                if self.filterStudents(currEvent['anon_screen_name']):
+                    continue
                 if prevEvent is None:
                     # First event of this course:
-                    # Check whether it's a demo or sandbox course:
-                    if self.filterCourses(currEvent):
-                        continue
-                    #... or a ghost student:
-                    if self.filterStudents(currEvent['anon_screen_name']):
-                        continue
                     if currEvent.get('anon_screen_name', None) is not None and\
                        len(currEvent['anon_screen_name']) > 0 and\
                        len(currEvent['course_display_name']) > 0:
@@ -314,27 +298,18 @@ class EngagementComputer(object):
                         self.log("Starting on course %s..." % currEvent['course_display_name'])
                     continue
 
-                # Is this an invalid student?                
-                if self.filterStudents(currEvent['anon_screen_name']):
-                    continue
                 if currEvent['course_display_name'] != self.currCourse:
                     # Previous event was last event of its course
-                    # Is this new event processable? I.e. does it have
-                    # all the info we need? If not, skip this event: 
-                    if self.filterCourses(currEvent):
-                        continue
-                    if len(currEvent['anon_screen_name']) > 0 and\
-                       len(currEvent['course_display_name']) > 0:
-                        # Account for the last session of current student in the current
-                        # class:
-                        self.wrapUpSession(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession, prevEvent['eventDateTime'])
-                        self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
-                        # Start a new course:
-                        self.currStudent = currEvent['anon_screen_name']
-                        self.currCourse  = currEvent['course_display_name']
-                        self.sessionStartTime = currEvent['eventDateTime']
-                        prevEvent = currEvent
-                        self.log("Starting on course %s..." % self.currCourse)
+                    # Account for the last session of current student in the current
+                    # class:
+                    self.wrapUpSession(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession, prevEvent['eventDateTime'])
+                    self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+                    # Start a new course:
+                    self.currStudent = currEvent['anon_screen_name']
+                    self.currCourse  = currEvent['course_display_name']
+                    self.sessionStartTime = currEvent['eventDateTime']
+                    prevEvent = currEvent
+                    self.log("Starting on course %s..." % self.currCourse)
                     continue
                 # Steady state: Next event in same course as
                 # previous event:
@@ -570,23 +545,36 @@ class EngagementComputer(object):
         return True
         
     def filterStudents(self, anon_screen_name):
-        if anon_screen_name == "9c1185a5c5e9fc54612808977ee8f548b2258d31":
+        if anon_screen_name in ["9c1185a5c5e9fc54612808977ee8f548b2258d31", 
+                                'c8ced366_1048_4b4a_8e36_aa60f7b53dd8', 
+                                '-1', 
+                                '0',
+                                None]:
+            return True
+        if len(anon_screen_name) == 0:
             return True
         
+        return False
+        
     def filterCourses(self, currEvent):
-        if len(currEvent['course_display_name']) == 0:
+        course_display_name = currEvent['course_display_name']
+        if course_display_name is None:
             return True
-        if currEvent['anon_screen_name'] == '3c1276fa_c58b_43ef_bafa_d4d9f18bedf5' or currEvent['anon_screen_name'] == 'c8ced366_1048_4b4a_8e36_aa60f7b53dd8':
+        if len(course_display_name) == 0:
             return True
         # Catch all course names containing demo, sandbox, david,
         # and any space-including versions of the Education/EDUC115N/How_to_Learn_Math
         # course:
-        if EngagementComputer.FAKE_COURSE_PATTERN.search(currEvent['course_display_name']) is not None:
+        if EngagementComputer.FAKE_COURSE_PATTERN.search(course_display_name) is not None:
             return True 
-        if currEvent['course_display_name'] == 'Education/EDUC115N/How_to_Lean_Math':
+        if course_display_name == 'Education/EDUC115N/How_to_Lean_Math':
             return True
-        
-        
+        try:
+            int(course_display_name)
+            return True
+        except ValueError:
+            return False
+                
         
     def getCourseRuntime(self, courseName):
         '''
@@ -753,7 +741,7 @@ if __name__ == '__main__':
     parser.add_argument('years',
                         nargs='+',
                         type=int,
-                        help='A list of start years (YYYY) to limit the courses that are computed. Use All if all start years are acceptable'
+                        help='A list of start years (YYYY) to limit the courses that are computed. Use 0 if all start years are acceptable'
                         ) 
     
     
@@ -795,7 +783,7 @@ if __name__ == '__main__':
     else:
         courseName = args.course
     
-    if args.years == 'All':
+    if args.years == [0]:
         years = None
     else:
         years = args.years
