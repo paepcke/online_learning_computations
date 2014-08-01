@@ -2,7 +2,7 @@ import multiprocessing
 from setuptools import setup, find_packages
 setup(
     name = "online_learning_computations",
-    version = "0.32",
+    version = "0.33",
     packages = find_packages(),
 
     # Dependencies on other packages:
