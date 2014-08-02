@@ -77,12 +77,12 @@ class EngagementComputer(object):
     # Time duration counted for any video event (minutes);
     # This is the median time between clicks across all
     # events:
-    VIDEO_EVENT_DURATION = 504/60
+    VIDEO_EVENT_DURATION = 500
     
     # Time duration counted for any non-video event (minutes);
     # This is the median time between clicks across all
     # events:
-    NON_VIDEO_EVENT_DURATION = 504/60
+    NON_VIDEO_EVENT_DURATION = 500
     
     # Database that contains EventXtract table:
     EVENT_XTRACT_TABLE_DB = 'Edx'
@@ -212,6 +212,8 @@ class EngagementComputer(object):
         self.currStudent      = None
         self.currCourse       = None
         self.timeSpentThisSession = 0
+        # Num of events in current session:
+        self.numEventsThisSession = 1
         self.sessionStartTime = 0
         prevEvent       = None
         currEvent       = None
@@ -363,8 +365,9 @@ class EngagementComputer(object):
         if minutes > self.sessionInactivityThreshold:
             self.wrapUpSession(self.currStudent, isVideo, timeSpentSoFar, dateTimeCurrEvent)
         else:
-            newTimeSpent = timeSpentSoFar + minutes
+            newTimeSpent = timeSpentSoFar + timeDelta.total_seconds()
             self.timeSpentThisSession = newTimeSpent
+            self.numEventsThisSession += 1
 
     def wrapUpStudent(self, anonStudent, wasVideo, timeSpentSoFar):
         '''
@@ -396,15 +399,20 @@ class EngagementComputer(object):
         :type dateTimeNewSessionStart: datetime
         '''
         if wasVideo:
-            newTimeSpentSoFar = timeSpentSoFar + self.getVideoLength()
+            newTimeSpentSoFar = timeSpentSoFar + EngagementComputer.VIDEO_EVENT_DURATION
         else:
             newTimeSpentSoFar = timeSpentSoFar + EngagementComputer.NON_VIDEO_EVENT_DURATION
         try:
             self.studentSessionsDict[currentStudent]
         except KeyError:
             self.studentSessionsDict[currentStudent] = []
-        self.studentSessionsDict[currentStudent].append((self.sessionStartTime, newTimeSpentSoFar))
+        self.studentSessionsDict[currentStudent].append((self.sessionStartTime, newTimeSpentSoFar, self.numEventsThisSession))
         self.timeSpentThisSession = 0
+        
+        # Init num of events in session, but account for the event that's 
+        # beyond this session, yet was already pulled from the log:
+        self.numEventsThisSession = 1
+        
         self.sessionStartTime = dateTimeNewSessionStart
 
             
@@ -485,7 +493,7 @@ class EngagementComputer(object):
                         try:
                             # Always just look at first sessionTime/Len tuple,
                             # because we remove the front of the array each time around:
-                            (eventDateTime, engageDurationMins) = dateAndSessionLenArr[0]
+                            (eventDateTime, engageDurationSecs, numEventsThisSession) = dateAndSessionLenArr[0] #@UnusedVariable
                         except IndexError:
                             # Done with this student
                             break
@@ -496,7 +504,7 @@ class EngagementComputer(object):
                             # Don't want to see this array entry again:
                             dateAndSessionLenArr.pop(0)
                             continue
-                        if eventDateTime < weekStart or engageDurationMins == 0: 
+                        if eventDateTime < weekStart or engageDurationSecs == 0: 
                             # Don't want to see this array entry again:
                             dateAndSessionLenArr.pop(0)
                             continue
@@ -508,7 +516,7 @@ class EngagementComputer(object):
                             # do *not* pop the first element of the
                             # array, so that it will be picked up next time:
                             break
-                        thisWeekThisStudentSessionList.append(engageDurationMins)
+                        thisWeekThisStudentSessionList.append(engageDurationSecs)
                         # Don't want to see this array entry again:
                         dateAndSessionLenArr.pop(0)
                         
@@ -517,6 +525,9 @@ class EngagementComputer(object):
                     # Got all session lengths of this student this week:
                     totalStudentSessions += len(thisWeekThisStudentSessionList)
                     studentMedianThisWeek = numpy.median(thisWeekThisStudentSessionList)
+                    # Convert to minutes to find the right per-week session length
+                    # for this student:
+                    studentMedianThisWeek = round(studentMedianThisWeek / 60.0)
                     if studentMedianThisWeek < 20:
                         oneToTwentyMin += 1
                     elif studentMedianThisWeek < 60:
@@ -594,19 +605,27 @@ class EngagementComputer(object):
             except Exception as e:
                 self.logErr('While looking up course start/end times in getCourseRuntime(): %s' % `e`)
                 return(None,None)
-                
-            # Get start/end time via earliest/latest observed events for given course:
-            query = 'SELECT MIN(time) AS course_start_date,\
-                            MAX(time) AS course_end_date\
-                            FROM EventXtract\
-                            WHERE course_display_name = "%s";' % courseName
             
-            for runtimes in runtimeLookupDb.query(query):
-                if runtimes is None:
-                    return(None,None)
-                return (runtimes[0], runtimes[1])
-            # No start/end times found for this course:
-            self.logErr("Did not find start/end times for class '%s'" % courseName)
+            (startDate, endDate) = runtimeLookupDb.query("SELECT start_date, end_date FROM Edx.CourseInfo WHERE course_display_name = '%s';" % courseName).next()
+            return (startDate, endDate) 
+            
+#             # The following commented code uses first and last observation,
+#             # instead of the CourseInfo table to determine course duration:
+#             # Get start/end time via earliest/latest observed events for given course:
+#             query = 'SELECT MIN(time) AS course_start_date,\
+#                             MAX(time) AS course_end_date\
+#                             FROM EventXtract\
+#                             WHERE course_display_name = "%s";' % courseName
+#             
+#             for runtimes in runtimeLookupDb.query(query):
+#                 if runtimes is None:
+#                     return(None,None)
+#                 return (runtimes[0], runtimes[1])
+#             # No start/end times found for this course:
+#             self.logErr("Did not find start/end times for class '%s'" % courseName)
+#             return (None,None)
+        except ValueError as e:
+            self.logErr("While attempting lookup of course start/end times: info for course %s not found" % courseName)
             return (None,None)
         except Exception as e:
             self.logErr("While attempting lookup of course start/end times: '%s'" % `e`)
@@ -617,9 +636,6 @@ class EngagementComputer(object):
             except Exception as e:
                 self.logErr('Could not close runtime lookup db: %s' % `e`);
   
-    def getVideoLength(self):
-        return EngagementComputer.VIDEO_EVENT_DURATION # minutes
-    
     def allDataIterator(self):
         for courseName in self.allStudentsDicts.keys():
             sessionsByStudentDict = self.allStudentsDicts[courseName]
@@ -627,11 +643,12 @@ class EngagementComputer(object):
                 sessionsArr = sessionsByStudentDict[student]
                 for dateMinutesTuple in sessionsArr:
                     try:
-                        yield '%s,%s,%s,%s,%d\n' % (courseName,
+                        yield '%s,%s,%s,%s,%d,%d\n' % (courseName,
                                                     student,
                                                     dateMinutesTuple[0].date(),
                                                     dateMinutesTuple[0].time(),
-                                                    dateMinutesTuple[1])
+                                                    dateMinutesTuple[1],   # total time in session
+                                                    dateMinutesTuple[2])   # num of events in session
                     except AttributeError as e:
                         self.logErr('In allDataIterator() dataMinutesTuple[0] was bad: (%s): %s' % (str(dateMinutesTuple),`e`));
 
@@ -670,18 +687,18 @@ class EngagementComputer(object):
             # For classes that actually have results: write them:
             if len(self.classStats.keys()) > 0:
                 # Summary file:
-                outFileSummary.write('Platform,Course,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
+                outFileSummary.write('Platform,Course,TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
                 for className in self.classStats.keys():
                     output = 'OpenEdX,' + className + ',' + re.sub(r'[\s()]','',str(self.classStats[className]))
                     outFileSummary.write(output + '\n')
                 outFileSummary.flush()
                 # Big detail file    
-                outFileAll.write('Platform,Course,anon_screen_name,Date,Time,SessionLength(min)\n')
+                outFileAll.write('Platform,Course,anon_screen_name,Date,Time,SessionLength(sec),NumEventsInSession\n')
                 for csvSessionRecord in self.allDataIterator():
                     outFileAll.write('OpenEdX,' + csvSessionRecord)
                 outFileAll.flush()    
                 # Student weekly effort summary:
-                outFileWeeklyEffort.write('Platform,Course,anon_screen_name,Week,Effort (min)\n')
+                outFileWeeklyEffort.write('Platform,Course,anon_screen_name,Week,Effort (sec)\n')
                 # For all dicts of form {student1->[[weekNum0,xMins],[weekNum1,yMins],...,],
                 #                        student2->[[...]
                 for course in self.allStudentsWeeklyEffortDict.keys():
@@ -701,6 +718,31 @@ class EngagementComputer(object):
             outFileAll.close()
             outFileWeeklyEffort.close()
             return(outFileSummary.name,outFileAll.name,outFileWeeklyEffort.name)
+        
+    def courseWeekNumber(self, courseStartDate, date):
+        if date < courseStartDate:
+            return None
+        if date.year == courseStartDate.year:
+            return self.weekNumber(date) - self.weekNumber(courseStartDate) + 1
+        yearsDiff = date.year - courseStartDate.year
+        currYear = courseStartDate.year
+        
+    def weekNumber(self, date):
+        '''
+        Given a date (or datetime) return the number
+        of the week in the year. Note, we do not use ISO, because
+        its behavior is unexpeded at the start/end of year. For instance,
+        in 2013, Dec 29 was a Sunday. So Jan 1 was the following Wed.
+        ISO places Dec 29 into week 1 of 2014. Instead this method
+        returns 51 
+
+        :param date: datetime object for date whose week-in-the-year is to be returned 
+        :type date: datetime
+        :return: number of week in the year by ISO standard.
+        :rtype: int
+        '''
+        return ((date - datetime.datetime(date.year,1,1)).days / 7) + 1
+        
         
     def log(self, msg):
         print('%s: %s' %  (str(datetime.datetime.now()), msg))
