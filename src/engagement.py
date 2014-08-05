@@ -731,7 +731,7 @@ class EngagementComputer(object):
         if date.year == courseStartDate.year:
             dateWeek = self.weekNumber(date)
             courseStartWeek = self.weekNumber(courseStartDate)
-            weekDiff = dateWeek - courseStartWeek 
+            weekDiff = dateWeek - courseStartWeek + 1
             return weekDiff
         # Number of full years between the two dates.
         # Ex: date=2014, courseStartDate=2013: 0 full years.
@@ -748,17 +748,29 @@ class EngagementComputer(object):
         its behavior is unexpeded at the start/end of year. For instance,
         in 2013, Dec 29 was a Sunday. So Jan 1 was the following Wed.
         ISO places Dec 29 into week 1 of 2014. Instead this method
-        returns 52. For Dec 31, 2014 week 53 is returned. 
+        returns 52. We do use isocalendar as a foundation, but then
+        correct for Dec and Jan.
         
-        If Jan 1 is a Wed, then week one is taken to last from Jan 1 to
-        Tue, Jan 7. Jan 8 is week 2. 
+        Weeks start on Monday.
 
         :param date: datetime object for date whose week-in-the-year is to be returned 
         :type date: datetime
         :return: number of week in the year by ISO standard.
         :rtype: int
         '''
-        return ((date - datetime.datetime(date.year,1,1)).days / 7) + 1
+        #***return ((date - datetime.datetime(date.year,1,1)).days / 7) + 1
+        isoWeekNum = date.isocalendar()[1]
+        if isoWeekNum == 1 and date.month == 12:
+            return 52
+        if isoWeekNum > 51 and date.month == 1:
+            # Mon-Sat?
+            if date.isocalendar()[2] < 7:
+                return 1
+            else:
+                # Sun:
+                return 2
+        return isoWeekNum
+    
 
     def courseWeekDate(self, courseStartDate, weekNum):
         '''
