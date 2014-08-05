@@ -449,13 +449,7 @@ class EngagementComputer(object):
             if endDate < startDate:
                 self.logErr("%s: endDate (%s) < startDate(%s)" % (courseName, endDate, startDate))
                 return False
-            # Partition into weeks:
-            courseDurationDelta = endDate - startDate;
-            courseDays = courseDurationDelta.days
-            if courseDays < 7:
-                self.logErr("%s: lasted less than one week (endDate %s; startDate%s)" % (courseName, endDate, startDate))
-                return False
-            numWeeks = int(math.ceil(courseDays / 7))
+            numWeeks = self.courseWeekNumber(startDate, endDate)
             oneToTwentyMin = 0
             twentyoneToSixtyMin = 0
             greaterSixtyMin = 0
@@ -589,7 +583,7 @@ class EngagementComputer(object):
         
     def getCourseRuntime(self, courseName):
         '''
-        Query Edx.EventXtract for the earliest and latest events in the
+        Query Edx.CourseInfo for the start and end date of the 
         given course.
 
         :param courseName: name of course whose times are to be found
@@ -720,12 +714,32 @@ class EngagementComputer(object):
             return(outFileSummary.name,outFileAll.name,outFileWeeklyEffort.name)
         
     def courseWeekNumber(self, courseStartDate, date):
+        '''
+        Given a course start date, and some other, later
+        date, return the week number of the course. It is
+        the caller's responsibility to check whether the 
+        number of returned weeks exceeds the duration of the
+        course.
+        
+        @param courseStartDate:
+        @type courseStartDate:
+        @param date:
+        @type date:
+        '''
         if date < courseStartDate:
             return None
         if date.year == courseStartDate.year:
-            return self.weekNumber(date) - self.weekNumber(courseStartDate) + 1
-        yearsDiff = date.year - courseStartDate.year
-        currYear = courseStartDate.year
+            dateWeek = self.weekNumber(date)
+            courseStartWeek = self.weekNumber(courseStartDate)
+            weekDiff = dateWeek - courseStartWeek 
+            return weekDiff
+        # Number of full years between the two dates.
+        # Ex: date=2014, courseStartDate=2013: 0 full years.
+        # Ex: date=2014, courseStartDate=2012: 1 full year: 2013
+        fullYearsDiff = (date.year - courseStartDate.year) - 1
+        weeksLeftInCourseDate = (datetime.datetime(date.year,12,31) - courseStartDate).days / 7
+        totalWeeksDiff = weeksLeftInCourseDate + 52*fullYearsDiff + self.weekNumber(date)
+        return totalWeeksDiff 
         
     def weekNumber(self, date):
         '''
@@ -734,7 +748,10 @@ class EngagementComputer(object):
         its behavior is unexpeded at the start/end of year. For instance,
         in 2013, Dec 29 was a Sunday. So Jan 1 was the following Wed.
         ISO places Dec 29 into week 1 of 2014. Instead this method
-        returns 51 
+        returns 52. For Dec 31, 2014 week 53 is returned. 
+        
+        If Jan 1 is a Wed, then week one is taken to last from Jan 1 to
+        Tue, Jan 7. Jan 8 is week 2. 
 
         :param date: datetime object for date whose week-in-the-year is to be returned 
         :type date: datetime
@@ -742,7 +759,29 @@ class EngagementComputer(object):
         :rtype: int
         '''
         return ((date - datetime.datetime(date.year,1,1)).days / 7) + 1
+
+    def courseWeekDate(self, courseStartDate, weekNum):
+        '''
+        Given a course start date and a number of weeks into the
+        course, return the absolute date.
         
+        @param courseStartDate: date when course starts
+        @type courseStartDate: datetime.datetime
+        @param weekNum: number of week into the course. First week is 1
+        @type weekNum: int
+        '''
+        return courseStartDate + datetime.timedelta(7 * (weekNum -1))
+        
+        
+    def numWeeksToEOY(self, date):
+        '''
+        Returns number of weeks between given date and end of the
+        date's year.
+        
+        @param date: date whose remaining weeks in its year are to be computed
+        @type date: datetime.datetime
+        '''
+        return 1 + (datetime.datetime(date.year,12,31) - date).days / 7
         
     def log(self, msg):
         print('%s: %s' %  (str(datetime.datetime.now()), msg))
