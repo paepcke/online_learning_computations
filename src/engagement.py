@@ -86,7 +86,7 @@ class EngagementComputer(object):
     
     # Database that contains EventXtract table:
     EVENT_XTRACT_TABLE_DB = 'Edx'
-    
+
     # Recognizing fake course names:
     FAKE_COURSE_PATTERN = re.compile(r'([Tt]est|[Ss]and[Bb]ox|[Dd]avid|[Dd]emo|Humaanities|SampleUniversity|[Jj]ane|ZZZ|Education/EDUC115N[^\s]*\s)')
     
@@ -584,13 +584,14 @@ class EngagementComputer(object):
     def getCourseRuntime(self, courseName):
         '''
         Query Edx.CourseInfo for the start and end date of the 
-        given course.
+        given course. Uses table CourseInfo. If end date in CourseInfo
+        is the null date (0000-00-00 00:00:00), then end date 
+        is determined by the last event observed in this course.
 
         :param courseName: name of course whose times are to be found
         :type courseName: String
         :return: Two-tuple with start and end time. May be (None, None) if times 
             could not be found
-
         :rtype: (datetime, datetime)
         '''
         try:
@@ -603,7 +604,14 @@ class EngagementComputer(object):
             courseRunIt = runtimeLookupDb.query("SELECT start_date, end_date FROM Edx.CourseInfo WHERE course_display_name = '%s';" % courseName)
             try:
                 (startDate, endDate) = courseRunIt.next()
-            except StopIteration:
+                # For courses without end time, make the end
+                # time the time of the most recent observed event:
+                if endDate is None:
+                    for lastDate in runtimeLookupDb.query("SELECT MAX(time) FROM Edx.EventXtract WHERE course_display_name = '%s';" % courseName):
+                        # The (single) result is a on-tuple
+                        # like: (datetime.datetime(2014, 8, 7, 3, 52, 15),):
+                        endDate = lastDate[0] 
+            except (StopIteration, IndexError):
                 (startDate, endDate) = (None, None) 
             return (startDate, endDate) 
             
