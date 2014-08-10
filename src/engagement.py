@@ -91,8 +91,8 @@ class EngagementComputer(object):
     FAKE_COURSE_PATTERN = re.compile(r'([Tt]est|[Ss]and[Bb]ox|[Dd]avid|[Dd]emo|Humaanities|SampleUniversity|[Jj]ane|ZZZ|Education/EDUC115N[^\s]*\s)')
     
     def __init__(self, 
-                coursesStartYearsArr, 
-                dbHost, 
+                coursesStartYearsArr=None, 
+                dbHost='localhost', 
                 mySQLUser=None, 
                 mySQLPwd=None, 
                 courseToProfile=None, 
@@ -831,10 +831,11 @@ if __name__ == '__main__':
                              "To have engagement computed for all courses, use All"
                         ) 
     
+    # Optionally: any number of years as ints:
     parser.add_argument('years',
-                        nargs='+',
+                        nargs='*',
                         type=int,
-                        help='A list of start years (YYYY) to limit the courses that are computed. Use 0 if all start years are acceptable'
+                        help='A list of start years (YYYY) to limit the courses that are computed. Leave out if all start years are acceptable'
                         ) 
     
     
@@ -876,7 +877,7 @@ if __name__ == '__main__':
     else:
         courseName = args.course
     
-    if args.years == [0]:
+    if len(args.years) == 0:
         years = None
     else:
         years = args.years
@@ -892,7 +893,7 @@ if __name__ == '__main__':
     invokingUser = getpass.getuser()
     # Set mysql password to None, which will cause
     # the __init__() method to check ~/.ssh... 
-    comp = EngagementComputer(years, 'localhost', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseName)
+    comp = EngagementComputer(coursesStartYearsArr=years, dbHost='localhost', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseName)
     comp.run()
     
     # -------------- Output Results to Disk ---------------
