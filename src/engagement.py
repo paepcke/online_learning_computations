@@ -600,7 +600,11 @@ class EngagementComputer(object):
                 self.logErr('While looking up course start/end times in getCourseRuntime(): %s' % `e`)
                 return(None,None)
             
-            (startDate, endDate) = runtimeLookupDb.query("SELECT start_date, end_date FROM Edx.CourseInfo WHERE course_display_name = '%s';" % courseName).next()
+            courseRunIt = runtimeLookupDb.query("SELECT start_date, end_date FROM Edx.CourseInfo WHERE course_display_name = '%s';" % courseName)
+            try:
+                (startDate, endDate) = courseRunIt.next()
+            except StopIteration:
+                (startDate, endDate) = (None, None) 
             return (startDate, endDate) 
             
 #             # The following commented code uses first and last observation,
