@@ -17,9 +17,12 @@ this module as a library.
 To use, instantiate EngagementComputer, call the run() method,
 and then the writeResultsToDisk() method.   
 
-The output are three files: /tmp/engagement.log,  /tmp/engagementAllCourses_summary.csv,
-and /tmp/engagementAllCourses_allData.csv. The summary file:
+The output are three files: ..._engagementAllCourses_summary.csv,
+and ..._engagementAllCourses_allData.csv and _engagementAllCourses_weeklyEffort.csv.
+The  ellipses are prefixes to make the files unique. Method writeToDisk()
+return the full paths.
 
+The summary file:
 TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty
 
 * TotalStudentSessions: the total number of sessions in which at least one minute of time
@@ -31,12 +34,11 @@ TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwen
                          was observed, counting each student, each week.
 * MedPerWeekGreaterSixty: the number of weeks in which a median >1hr of time engagement 
                          was observed, counting each student, each week.
-                        
 
 The engagementAllCourses_allData.csv contains every session of every student.
 
  Platform,Course,anon_screen_name,Date,Time,SessionLength
- 
+
  * Platform: always OpenEdX
  * Course: full name of course (course_display_name)
  * anon_screen_name: anon_screen_name
@@ -44,6 +46,8 @@ The engagementAllCourses_allData.csv contains every session of every student.
  * Time: time of session
  * SessionLength: length of session in minutes
  
+Normally all events are considered as engagement. But parameter videoOnly
+for the constructor limits events to user video player manipulations.
 
 @author: paepcke
 '''
@@ -96,7 +100,8 @@ class EngagementComputer(object):
                 mySQLUser=None, 
                 mySQLPwd=None, 
                 courseToProfile=None, 
-                sessionInactivityThreshold=30):
+                sessionInactivityThreshold=30,
+                videoOnly=False):
         '''
         Sets up one session-accounting run through a properly filled table (as
         per file level comment above.
@@ -118,6 +123,8 @@ class EngagementComputer(object):
                it is concluded that the student is no longer working on the computer in the
                current session.
         :type sessionInactivityThreshold: int
+        :param videoOnly: if True, then only video events will be considered.
+        :type videoOnly: boolean
         '''
         self.dbHost = dbHost
         self.dbName = 'Edx'
@@ -127,6 +134,7 @@ class EngagementComputer(object):
             self.courseToProfile = None
         else:
             self.courseToProfile = courseToProfile
+        self.videoOnly = videoOnly
         
         self.coursesStartYearsArr = coursesStartYearsArr
         self.sessionInactivityThreshold = sessionInactivityThreshold
@@ -228,11 +236,16 @@ class EngagementComputer(object):
             queryStartTime = time.time()
             queryEndTimeReported = False
             if self.courseToProfile is None:
-                # Profile all courses:
+                # Profile all courses. Takes a loooong time.
+                # consider disallowing:
                 mysqlCmd = "SELECT * \
 		  	                FROM  (\
-		  	                	     SELECT course_display_name, anon_screen_name, time, IF((event_type = 'play_video'),1,0) AS isVideo \
+		  	                	     SELECT course_display_name, \
+		  	                	            anon_screen_name, \
+		  	                	            time, \
+		  	                	            IF((event_type = 'play_video' OR event_type = 'load_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0) AS isVideo \
 		  	                	     FROM Edx.EventXtract \
+		  	                	     WHERE isUserEvent(event_type) \
 		  	                    UNION ALL \
 		  	                        SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo \
 		  	                        FROM EdxForum.contents \
@@ -241,9 +254,13 @@ class EngagementComputer(object):
             else:
                 mysqlCmd = "SELECT * \
 		  	                FROM  (\
-		  	                	     SELECT course_display_name, anon_screen_name, time, IF((event_type = 'play_video'),1,0) AS isVideo \
+		  	                	     SELECT course_display_name, \
+		  	                	            anon_screen_name, \
+		  	                	            time, \
+		  	                	            IF((event_type = 'play_video' OR event_type = 'load_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0) AS isVideo \
 		  	                	     FROM Edx.EventXtract \
 		  	                	     WHERE course_display_name = '%s'\
+		  	                          AND isUserEvent(event_type) \
 		  	                    UNION ALL \
 		  	                        SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo \
 		  	                        FROM EdxForum.contents \
