@@ -235,6 +235,9 @@ class EngagementComputer(object):
             self.log('About to start the query; will take a while...')
             queryStartTime = time.time()
             queryEndTimeReported = False
+            # Currently not following a sequence
+            # of video sessions:
+            inVideoSession = False
             if self.courseToProfile is None:
                 # Profile all courses. Takes a loooong time.
                 # consider disallowing:
@@ -283,6 +286,32 @@ class EngagementComputer(object):
                 if self.filterCourses(currEvent):
                     continue
                 
+                # If we are only to pay attention to 
+                # video, then a non-video event is only
+                # of interest if we are currently in a 
+                # sequence of video actions. In that case
+                # the non-video event terminates the video
+                # sequence:
+                if self.videoOnly:
+                    if not currEvent['isVideo'] and not inVideoSession:                    
+                        continue
+                    else:
+                        # Else we are still or now newly in a video session: 
+                        if not inVideoSession:
+                            # Init start time and number of events
+                            # for this new video session:
+                            self.initOneSession(currEvent['eventDateTime'])
+                            inVideoSession = True
+                            # If this is the very first video event
+                            # we ever saw, fall into the 'if prevEvent is None' below.
+                            # Otherwise go get the next event:
+                            if prevEvent is not None:
+                                continue
+                    # Curr event is not video, but we were in a video
+                    # session. So this event closes down the current
+                    # session. Continue below to account for last video
+                    # action...
+
                 # Is this an invalid student?                
                 if self.filterStudents(currEvent['anon_screen_name']):
                     continue
@@ -326,6 +355,9 @@ class EngagementComputer(object):
                     # Start a new course:
                     self.currStudent = currEvent['anon_screen_name']
                     self.currCourse  = currEvent['course_display_name']
+                    if self.videoOnly:
+                        # Wait for next video event to start a sequence:
+                        inVideoSession = False
                     self.sessionStartTime = currEvent['eventDateTime']
                     prevEvent = currEvent
                     self.log("Starting on course %s..." % self.currCourse)
@@ -340,11 +372,16 @@ class EngagementComputer(object):
                     self.sessionStartTime = currEvent['eventDateTime']
                     self.wrapUpStudent(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
                     self.currStudent = currEvent['anon_screen_name']
+                    if self.videoOnly:
+                        # Wait for next video event to start a sequence:
+                        inVideoSession = False
                     prevEvent = currEvent
                     continue
                 else:
                     # Same course and student as previous event:
                     self.addTimeToSession(prevEvent['eventDateTime'], currEvent['eventDateTime'], prevEvent['isVideo'], self.timeSpentThisSession)
+                    if self.videoOnly and not currEvent['isVideo']:
+                        inVideoSession = False
                     prevEvent = currEvent;
                     continue
             # Wrap up the last class:
@@ -359,7 +396,7 @@ class EngagementComputer(object):
                 except Exception as e:
                     self.logErr('Could not close activities db: ' % `e`);
 
-    def addTimeToSession(self, dateTimePrevEvent, dateTimeCurrEvent, isVideo, timeSpentSoFar):
+    def addTimeToSession(self, dateTimePrevEvent, dateTimeCurrEvent, prevEventWasVideo, timeSpentSoFar):
         '''
         Called when a new event by a student is being processed. Adds the
         event time to self.timeSpentThisSession. If time since previous
@@ -370,8 +407,8 @@ class EngagementComputer(object):
         :type dateTimePrevEvent:
         :param dateTimeCurrEvent:
         :type dateTimeCurrEvent:
-        :param isVideo:
-        :type isVideo:
+        :param prevEventWasVideo:
+        :type prevEventWasVideo:
         :param timeSpentSoFar:
         :type timeSpentSoFar:
         '''
@@ -380,7 +417,7 @@ class EngagementComputer(object):
         timeDelta = dateTimeCurrEvent - dateTimePrevEvent
         minutes   = round(timeDelta.total_seconds()/60.0)
         if minutes > self.sessionInactivityThreshold:
-            self.wrapUpSession(self.currStudent, isVideo, timeSpentSoFar, dateTimeCurrEvent)
+            self.wrapUpSession(self.currStudent, prevEventWasVideo, timeSpentSoFar, dateTimeCurrEvent)
         else:
             newTimeSpent = timeSpentSoFar + timeDelta.total_seconds()
             self.timeSpentThisSession = newTimeSpent
@@ -426,6 +463,9 @@ class EngagementComputer(object):
         self.studentSessionsDict[currentStudent].append((self.sessionStartTime, newTimeSpentSoFar, self.numEventsThisSession))
         self.timeSpentThisSession = 0
         
+        self.initOneSession(dateTimeNewSessionStart)
+        
+    def initOneSession(self, dateTimeNewSessionStart):
         # Init num of events in session, but account for the event that's 
         # beyond this session, yet was already pulled from the log:
         self.numEventsThisSession = 1
@@ -691,21 +731,28 @@ class EngagementComputer(object):
 
         :rtype: (string,string,string)
         '''
+        # If we considered only video events, we 
+        # add 'vidOnly' to each of the three result
+        # file names, else we don't:
+        if self.videoOnly:
+            videoNote = '_vidOnly_'
+        else:
+            videoNote = '_' 
         if self.courseToProfile is None:
             # Analysis was requested for all courses.
             # The summary goes into one file:
-            outFileSummary = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses_summary.csv', delete=False)
+            outFileSummary = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses%ssummary.csv' % videoNote, delete=False)
             # File for all student engagement numbers:
-            outFileAll     = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses_allData.csv', delete=False)
+            outFileAll     = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses%sallData.csv' % videoNote, delete=False)
             # File for weekly student effort summary in each course:
-            outFileWeeklyEffort = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses_weeklyEffort.csv', delete=False)
+            outFileWeeklyEffort = tempfile.NamedTemporaryFile(suffix='_engagementAllCourses%sweeklyEffort.csv' % videoNote, delete=False)
         else:
             # Analysis was requested for a single course.
             # The summary goes into /tmp/engagement_<courseNameNoSpacesOrSlashes>_summary.csv:
             courseNameNoSpaces = string.replace(string.replace(self.courseToProfile,' ',''), '/', '_')
-            outFileSummary = tempfile.NamedTemporaryFile(suffix='_engagement_%s_summary.csv' % courseNameNoSpaces, delete=False)
-            outFileAll     = tempfile.NamedTemporaryFile(suffix='_engagement_%s_allData.csv' % courseNameNoSpaces, delete=False)
-            outFileWeeklyEffort = tempfile.NamedTemporaryFile(suffix='_engagement_%s_weeklyEffort.csv' % courseNameNoSpaces, delete=False)
+            outFileSummary = tempfile.NamedTemporaryFile(suffix='_engagement_%s%ssummary.csv' % (courseNameNoSpaces, videoNote), delete=False)
+            outFileAll     = tempfile.NamedTemporaryFile(suffix='_engagement_%s%sallData.csv' % (courseNameNoSpaces, videoNote), delete=False)
+            outFileWeeklyEffort = tempfile.NamedTemporaryFile(suffix='_engagement_%s%sweeklyEffort.csv' % (courseNameNoSpaces, videoNote), delete=False)
         try:
             # For classes that actually have results: write them:
             if len(self.classStats.keys()) > 0:
@@ -854,6 +901,11 @@ if __name__ == '__main__':
                              '    default: content of scriptInvokingUser$Home/.ssh/mysql if --user is unspecified,\n' +\
                              '    or, if specified user is root, then the content of scriptInvokingUser$Home/.ssh/mysql_root.'
                         )
+    parser.add_argument('-v', '--videoOnly', 
+                        help='Only consider video events as engagement (default: consider all types).', 
+                        dest='videoOnly',
+                        default=False,
+                        action='store_true');
     parser.add_argument('course',
                         action='store',
                         help='The course for which engagement is to be computed. Else: engagement for all courses.\n' +\
@@ -921,8 +973,8 @@ if __name__ == '__main__':
 
     invokingUser = getpass.getuser()
     # Set mysql password to None, which will cause
-    # the __init__() method to check ~/.ssh... 
-    comp = EngagementComputer(coursesStartYearsArr=years, dbHost='localhost', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseName)
+    # the __init__() method to check ~/.ssh...
+    comp = EngagementComputer(coursesStartYearsArr=years, dbHost='localhost', mySQLUser=invokingUser, mySQLPwd=None, courseToProfile=courseName, videoOnly=args.videoOnly)
     comp.run()
     
     # -------------- Output Results to Disk ---------------
