@@ -757,7 +757,7 @@ class EngagementComputer(object):
             # For classes that actually have results: write them:
             if len(self.classStats.keys()) > 0:
                 # Summary file:
-                outFileSummary.write('Platform,Course,TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
+                outFileSummary.write('Platform,Course,TotalStudentSessions,TotalEffortAllStudents(secs),MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
                 for className in self.classStats.keys():
                     output = 'OpenEdX,' + className + ',' + re.sub(r'[\s()]','',str(self.classStats[className]))
                     outFileSummary.write(output + '\n')
