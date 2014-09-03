@@ -28,12 +28,22 @@ TotalStudentSessions,TotalEffortAllStudents,MedPerWeekOneToTwenty,MedPerWeekTwen
 * TotalStudentSessions: the total number of sessions in which at least one minute of time
                         engagement occurred. This counts all sessions for all students.
 * TotalEffortAllStudents: total number of engagement minutes across all student.                         
-* MedPerWeekOneToTwenty: the number of weeks in which a median of 1 to 20 minutes of time engagement 
+* MedPerWeekOneToTwenty: the number of times in which a weekly median of 1 to 20 minutes of time engagement 
                          was observed, counting each student, each week.
-* MedPerWeekTwentyoneToSixty: the number of weeks in which a median of 21min to 1hr of time engagement 
+* MedPerWeekTwentyoneToSixty: the number of times in which a weekly median of 21min to 1hr of time engagement 
                          was observed, counting each student, each week.
-* MedPerWeekGreaterSixty: the number of weeks in which a median >1hr of time engagement 
+* MedPerWeekGreaterSixty: the number of times in which a weekly median of >1hr of time engagement 
                          was observed, counting each student, each week.
+
+For example, say a course with 3 learners lasts for two weeks.  The
+first week two learners had an observed median session length of 15
+minutes. One learner's median was 2hrs. The second week of the course
+one learner's median was 25 minutes, and the other two learners
+engaged for a median of 13 minutes.
+
+The Median1-20 would be (2 + 2 = 4), the Median21-1hr would be 1, and
+the Median>1hr would be 1.
+
 
 The engagementAllCourses_allData.csv contains every session of every student.
 
@@ -55,7 +65,6 @@ import argparse
 import copy
 import datetime
 import getpass
-import math
 import numpy
 import os
 import re
@@ -81,12 +90,14 @@ class EngagementComputer(object):
     # Time duration counted for any video event (minutes);
     # This is the median time between clicks across all
     # events:
-    VIDEO_EVENT_DURATION = 500
+    #*******VIDEO_EVENT_DURATION = 500
+    VIDEO_EVENT_DURATION = 1
     
     # Time duration counted for any non-video event (minutes);
     # This is the median time between clicks across all
     # events:
-    NON_VIDEO_EVENT_DURATION = 500
+    #********NON_VIDEO_EVENT_DURATION = 500
+    NON_VIDEO_EVENT_DURATION = 1
     
     # Database that contains EventXtract table:
     EVENT_XTRACT_TABLE_DB = 'Edx'
@@ -138,6 +149,8 @@ class EngagementComputer(object):
         
         self.coursesStartYearsArr = coursesStartYearsArr
         self.sessionInactivityThreshold = sessionInactivityThreshold
+        self.timeSpentThisSession = 0.0
+
         # To keep track of which course runtimes
         # we already output an error msg for,
         # b/c we didn't find it:
@@ -190,6 +203,7 @@ class EngagementComputer(object):
 		  	                  event_type = 'play_video' OR 
 		  	                  event_type = 'pause_video' OR 
 		  	                  event_type = 'seek_video' OR 
+		  	                  event_type = 'stop_video' OR 
 		  	                  event_type = 'speed_change_video'),1,0)
 		  	                 AS isVideo
 		  	       FROM Edx.EventXtract
@@ -219,7 +233,7 @@ class EngagementComputer(object):
         self.allStudentsWeeklyEffortDict ={}
         self.currStudent      = None
         self.currCourse       = None
-        self.timeSpentThisSession = 0
+        self.timeSpentThisSession = 0.0
         # Num of events in current session:
         self.numEventsThisSession = 1
         self.sessionStartTime = 0
@@ -246,7 +260,7 @@ class EngagementComputer(object):
 		  	                	     SELECT course_display_name, \
 		  	                	            anon_screen_name, \
 		  	                	            time, \
-		  	                	            IF((event_type = 'play_video' OR event_type = 'load_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0) AS isVideo \
+		  	                	            IF((event_type = 'play_video' OR event_type = 'stop_video' OR event_type = 'load_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0) AS isVideo \
 		  	                	     FROM Edx.EventXtract \
 		  	                	     WHERE isUserEvent(event_type) \
 		  	                    UNION ALL \
@@ -260,7 +274,7 @@ class EngagementComputer(object):
 		  	                	     SELECT course_display_name, \
 		  	                	            anon_screen_name, \
 		  	                	            time, \
-		  	                	            IF((event_type = 'play_video' OR event_type = 'load_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0) AS isVideo \
+		  	                	            IF((event_type = 'play_video' OR event_type = 'stop_video' OR event_type = 'load_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0) AS isVideo \
 		  	                	     FROM Edx.EventXtract \
 		  	                	     WHERE course_display_name = '%s'\
 		  	                          AND isUserEvent(event_type) \
@@ -311,39 +325,34 @@ class EngagementComputer(object):
                     # session. So this event closes down the current
                     # session. Continue below to account for last video
                     # action...
-
+                    
                 # Is this an invalid student?                
                 if self.filterStudents(currEvent['anon_screen_name']):
                     continue
                 if prevEvent is None:
                     # First event of this course:
-                    if currEvent.get('anon_screen_name', None) is not None and\
-                       len(currEvent['anon_screen_name']) > 0 and\
-                       len(currEvent['course_display_name']) > 0:
-                        self.currStudent = currEvent['anon_screen_name']
-                        self.currCourse  = currEvent['course_display_name']
-                        # If we are only to consider courses that started during
-                        # a particular year, then find this course's start/end times,
-                        # and ignore the course if it's not in one of the acceptable
-                        # years:
-                        if self.coursesStartYearsArr is not None:
-                            # Get start and end dates of this class:
-                            try:
-                                (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
-                            except Exception as e:
-                                self.logErr("While calling getCourseRuntime() from run(): '%s'" % `e`)
-                                continue
-                            # If getCourseRuntime() failed, that method will have logged
-                            # the error, so we just continue:
-                            if self.courseStartDate is None or self.courseEndDate is None:
-                                continue
-                            # Only deal with classes that started in the 
-                            # desired year:
-                            if not self.courseStartDate.year in self.coursesStartYearsArr:
-                                continue
-                        self.sessionStartTime = currEvent['eventDateTime']
-                        prevEvent = currEvent
-                        self.log("Starting on course %s..." % currEvent['course_display_name'])
+                    # If we are only to consider courses that started during
+                    # a particular year, then find this course's start/end times,
+                    # and ignore the course if it's not in one of the acceptable
+                    # years:
+                    if self.coursesStartYearsArr is not None:
+                        # Get start and end dates of this class:
+                        try:
+                            (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
+                        except Exception as e:
+                            self.logErr("While calling getCourseRuntime() from run(): '%s'" % `e`)
+                            continue
+                        # If getCourseRuntime() failed, that method will have logged
+                        # the error, so we just continue:
+                        if self.courseStartDate is None or self.courseEndDate is None:
+                            continue
+                        # Only deal with classes that started in the 
+                        # desired year:
+                        if not self.courseStartDate.year in self.coursesStartYearsArr:
+                            continue
+                    self.sessionStartTime = currEvent['eventDateTime']
+                    prevEvent = currEvent
+                    self.log("Starting on course %s..." % currEvent['course_display_name'])
                     continue
 
                 if currEvent['course_display_name'] != self.currCourse:
@@ -386,9 +395,18 @@ class EngagementComputer(object):
                     continue
             # Wrap up the last class:
             if currEvent is not None:
-                self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession, currEvent['eventDateTime'])
+                if self.currStudent is not None:
+                    # A None student can land here if there never was
+                    # a real student, i.e. self.filterStudents() always
+                    # caused the DB cursor loop to continue:
+                    self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession, currEvent['eventDateTime'])
                 self.sessionStartTime = currEvent['eventDateTime']
                 self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+            if not queryEndTimeReported:
+                # Query above yielded an empty set, and we
+                # never reported that the query finished:
+                self.log('Query done, returning zero results')
+
         finally:
             if self.db is not None:
                 try:
@@ -531,7 +549,7 @@ class EngagementComputer(object):
                         # First time we see this student. 
                         # Get a *copy* of this student's array of time-sorted sessionTime/sessionLen tuples.
                         # The copying takes time, but working on a copy
-                        # we allows us to delete elements we are done with
+                        # will allows us to delete elements we are done with
                         # for the purpose of this loop, rather than having to
                         # go through all the elements left to right each time
                         # through the loop below:
@@ -550,8 +568,10 @@ class EngagementComputer(object):
                             break
                         
                         if not isinstance(eventDateTime, datetime.datetime):
-                            self.logErr("Expected datetime, but got %s ('%s') from dateAndSessionLenArr." % 
-                                             (type(eventDateTime), str(eventDateTime)))
+                            # self.sessionStartTime was never changed from 0 to
+                            # the start of a session. The student never had 
+                            #self.logErr("Expected datetime, but got %s ('%s') from dateAndSessionLenArr." % 
+                            #                 (type(eventDateTime), str(eventDateTime)))
                             # Don't want to see this array entry again:
                             dateAndSessionLenArr.pop(0)
                             continue
