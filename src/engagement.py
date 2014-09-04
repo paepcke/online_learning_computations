@@ -338,7 +338,7 @@ class EngagementComputer(object):
                     if self.coursesStartYearsArr is not None:
                         # Get start and end dates of this class:
                         try:
-                            (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(self.currCourse)
+                            (self.courseStartDate, self.courseEndDate) = self.getCourseRuntime(currEvent['course_display_name'])
                         except Exception as e:
                             self.logErr("While calling getCourseRuntime() from run(): '%s'" % `e`)
                             continue
@@ -351,6 +351,7 @@ class EngagementComputer(object):
                         if not self.courseStartDate.year in self.coursesStartYearsArr:
                             continue
                     self.sessionStartTime = currEvent['eventDateTime']
+                    self.currCourse = currEvent['course_display_name']
                     prevEvent = currEvent
                     self.log("Starting on course %s..." % currEvent['course_display_name'])
                     continue
@@ -401,7 +402,8 @@ class EngagementComputer(object):
                     # caused the DB cursor loop to continue:
                     self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession, currEvent['eventDateTime'])
                 self.sessionStartTime = currEvent['eventDateTime']
-                self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+                if self.currCourse is not None:
+                    self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
             if not queryEndTimeReported:
                 # Query above yielded an empty set, and we
                 # never reported that the query finished:
@@ -973,12 +975,12 @@ if __name__ == '__main__':
                 # No .ssh subdir of user's home, or no mysql inside .ssh:
                 pwd = ''
     
-    if args.course == 'All':
+    if args.course.lower() == 'all':
         courseName = None
     else:
         courseName = args.course
     
-    if len(args.years) == 0:
+    if len(args.years) == 0 or args.years[0] == 0:
         years = None
     else:
         years = args.years
@@ -999,4 +1001,7 @@ if __name__ == '__main__':
     
     # -------------- Output Results to Disk ---------------
     (summaryFile, detailFile, weeklyEffortFile) = comp.writeResultsToDisk()
-    comp.log("Your results are in %s, %s, and %s." % (summaryFile, detailFile, weeklyEffortFile))
+    if os.path.getsize(summaryFile) == 0 and os.path.getsize(detailFile) == 0 and os.path.getsize(weeklyEffortFile) == 0:
+        comp.log('No course qualified given year constraints.')
+    else: 
+        comp.log("Your results are in %s, %s, and %s." % (summaryFile, detailFile, weeklyEffortFile))
