@@ -90,14 +90,18 @@ class EngagementComputer(object):
     # Time duration counted for any video event (minutes);
     # This is the median time between clicks across all
     # events:
-    #*******VIDEO_EVENT_DURATION = 500
-    VIDEO_EVENT_DURATION = 1
-    
-    # Time duration counted for any non-video event (minutes);
-    # This is the median time between clicks across all
-    # events:
-    #********NON_VIDEO_EVENT_DURATION = 500
-    NON_VIDEO_EVENT_DURATION = 1
+
+    #VIDEO_EVENT_DURATION = 500                                                                                                                                        
+    VIDEO_EVENT_DURATION = 1                                                                                                                                           
+    #VIDEO_EVENT_DURATION = 0                                                                                                                                          
+                                                                                                                                                                       
+    # Time duration counted for any non-video event (minutes);                                                                                                         
+    # This is the median time between clicks across all                                                                                                                
+    # events:                                                                                                                                                          
+                                                                                                                                                                       
+    #NON_VIDEO_EVENT_DURATION = 500                                                                                                                                    
+    NON_VIDEO_EVENT_DURATION = 1                                                                                                                                       
+    #NON_VIDEO_EVENT_DURATION = 0      
     
     # Database that contains EventXtract table:
     EVENT_XTRACT_TABLE_DB = 'Edx'
