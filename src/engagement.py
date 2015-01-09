@@ -109,6 +109,49 @@ class EngagementComputer(object):
     # Recognizing fake course names:
     FAKE_COURSE_PATTERN = re.compile(r'([Tt]est|[Ss]and[Bb]ox|[Dd]avid|[Dd]emo|Humaanities|SampleUniversity|[Jj]ane|ZZZ|Education/EDUC115N[^\s]*\s)')
     
+    # Event types that are considered true user
+    # engagement:
+    trueUserEvents = ['book', 
+                      'fullscreen', 
+                      'hide_transcript', 
+                      'hide_transcript', 
+                      'load_video', 
+                      'not_fullscreen', 
+                      'oe_feedback_response_selected', 
+                      'oe_hide_question', 
+                      'oe_show_question', 
+                      'oe_show_full_feedback', 
+                      'oe_show_respond_to_feedback', 
+                      'openassessmentblock.get_peer_submission',
+                      'openassessmentblock.peer_assess',
+                      'openassessmentblock.self_assess',
+                      'openassessmentblock.submit_feedback_on_assessments',
+                      'openassessment.student_training_assess_example',
+                      'openassessment.create_submission',
+                      'openassessment.save_submission',
+                      'openassessment.upload_file',
+                      'page_close', 
+                      'pause_video', 
+                      'peer_grading_hide_question', 
+                      'peer_grading_show_question', 
+                      'play_video', 
+                      'problem_check', 
+                      'problem_graded', 
+                      'problem_fail', 
+                      'problem_reset', 
+                      'problem_save', 
+                      'problem_show', 
+                      'rubric_select', 
+                      'seek_video', 
+                      'seq_goto', 
+                      'seq_next', 
+                      'seq_prev', 
+                      'show_transcript', 
+                      'speed_change_video', 
+                      'staff_grading_hide_question', 
+                      'staff_grading_show_question'
+                      ]
+    
     def __init__(self, 
                 coursesStartYearsArr=None, 
                 dbHost='localhost', 
@@ -243,6 +286,11 @@ class EngagementComputer(object):
         self.sessionStartTime = 0
         prevEvent       = None
         currEvent       = None
+        # Keep track of the active learners
+        # in a course, so they don't get counted
+        # multiple times:
+        activeLearners  = {}
+        numActiveLearners = 0
          
         COURSE_INDEX    = 0
         STUDENT_INDEX   = 1
@@ -365,10 +413,13 @@ class EngagementComputer(object):
                     # Account for the last session of current student in the current
                     # class:
                     self.wrapUpSession(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession, prevEvent['eventDateTime'])
-                    self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+                    self.wrapUpCourse(self.currCourse, self.studentSessionsDict, numActiveLearners)
                     # Start a new course:
                     self.currStudent = currEvent['anon_screen_name']
                     self.currCourse  = currEvent['course_display_name']
+                    numActiveLearners = 0
+                    currStudentCounted = False
+                    activeLearners    = {}
                     if self.videoOnly:
                         # Wait for next video event to start a sequence:
                         inVideoSession = False
@@ -385,10 +436,18 @@ class EngagementComputer(object):
                     self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession, prevEvent['eventDateTime'])
                     self.sessionStartTime = currEvent['eventDateTime']
                     self.wrapUpStudent(self.currStudent, prevEvent['isVideo'], self.timeSpentThisSession)
+                    currStudentCounted = False
                     self.currStudent = currEvent['anon_screen_name']
                     if self.videoOnly:
                         # Wait for next video event to start a sequence:
                         inVideoSession = False
+                    # If curr event is video related, count this 
+                    # learner as active:
+                    if currEvent['isVideo']:
+                        if not currStudentCounted and not self.currStudent in activeLearners:
+                            activeLearners[self.currStudent] = 1
+                            numActiveLearners += 1
+                            currStudentCounted = True
                     prevEvent = currEvent
                     continue
                 else:
@@ -396,6 +455,13 @@ class EngagementComputer(object):
                     self.addTimeToSession(prevEvent['eventDateTime'], currEvent['eventDateTime'], prevEvent['isVideo'], self.timeSpentThisSession)
                     if self.videoOnly and not currEvent['isVideo']:
                         inVideoSession = False
+                    # If curr event is video related, count this 
+                    # learner as active:
+                    if currEvent['isVideo']:
+                        if not currStudentCounted and not self.currStudent in activeLearners:
+                            activeLearners[self.currStudent] = 1
+                            numActiveLearners += 1
+                            currStudentCounted = True
                     prevEvent = currEvent;
                     continue
             # Wrap up the last class:
@@ -407,7 +473,7 @@ class EngagementComputer(object):
                     self.wrapUpSession(self.currStudent, currEvent['isVideo'], self.timeSpentThisSession, currEvent['eventDateTime'])
                 self.sessionStartTime = currEvent['eventDateTime']
                 if self.currCourse is not None:
-                    self.wrapUpCourse(self.currCourse, self.studentSessionsDict)
+                    self.wrapUpCourse(self.currCourse, self.studentSessionsDict, numActiveLearners)
             if not queryEndTimeReported:
                 # Query above yielded an empty set, and we
                 # never reported that the query finished:
@@ -497,7 +563,7 @@ class EngagementComputer(object):
         self.sessionStartTime = dateTimeNewSessionStart
 
             
-    def wrapUpCourse(self, courseName, studentSessionsDict):
+    def wrapUpCourse(self, courseName, studentSessionsDict, numActiveLearners):
         '''
         Called when all students of one class have been
         processed. This method receives a dict that maps
@@ -515,6 +581,9 @@ class EngagementComputer(object):
 
         :param studentSessionsDict:
         :type studentSessionsDict:
+        :param numActiveLearners: number of learners who created at least
+               one 'real' event.
+        :type numActiveLearners: int
         '''
         try:
             # Data struct to hold student --> [[week0,x],[week1,y],...],
@@ -621,7 +690,7 @@ class EngagementComputer(object):
                     thisStudentRecord.append([weekNum, sumEffortThisStudentThisWeek])  
                     totalEffortAllStudents += sumEffortThisStudentThisWeek
                         
-            self.classStats[courseName] = (totalStudentSessions, int(round(totalEffortAllStudents)), oneToTwentyMin, twentyoneToSixtyMin, greaterSixtyMin)
+            self.classStats[courseName] = (numActiveLearners, totalStudentSessions, int(round(totalEffortAllStudents)), oneToTwentyMin, twentyoneToSixtyMin, greaterSixtyMin)
         finally:
             # Save this course's record of all student sessions
             self.allStudentsDicts[courseName] = self.studentSessionsDict
@@ -783,7 +852,7 @@ class EngagementComputer(object):
             # For classes that actually have results: write them:
             if len(self.classStats.keys()) > 0:
                 # Summary file:
-                outFileSummary.write('Platform,Course,TotalStudentSessions,TotalEffortAllStudents(secs),MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
+                outFileSummary.write('Platform,Course,NumActiveLearners,TotalEffortAllStudents(hrs),TotalStudentSessions,TotalEffortAllStudents(secs),MedPerWeekOneToTwenty,MedPerWeekTwentyoneToSixty,MedPerWeekGreaterSixty\n')
                 for className in self.classStats.keys():
                     output = 'OpenEdX,' + className + ',' + re.sub(r'[\s()]','',str(self.classStats[className]))
                     outFileSummary.write(output + '\n')
