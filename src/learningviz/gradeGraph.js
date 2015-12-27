@@ -93,12 +93,6 @@ function GradeCharter() {
 	that.probIdArr = [];
 	that.maxNumTakers  = 0;
 	
-	// Number of distinct problem IDs encountered so far:
-	//***********
-	//that.num_probs = 0;
-	that.numProbs = 3;
-	//***********
-	
 	//console.log("Constructor called");
 	that.svg = d3.select("body").append("svg")
 		  		 .attr("width", that.svgW)
@@ -110,7 +104,7 @@ function GradeCharter() {
 		.rangeRoundBands([that.barGap, that.svgW - that.barGap], .20, .5);
 	
 	that.yscale = d3.scale.linear()
-		.domain([0, 2]) // **** don't want that, want that set in commented below.
+		//.domain([0, 2]) // **** don't want that, want that set in commented below.
 		.range([that.svgH, 0]);
 	
 	GradeCharter.prototype.updateViz = function(tuples) {
@@ -124,15 +118,19 @@ function GradeCharter() {
 		for (var i=0, len=tuples.length; i<len; i++) {
 			var tuple = tuples[i];
 			var probId = tuple[that.GradeInfoIndx.PROBLEM_ID];
+			var numAttempts = tuple[that.GradeInfoIndx.ATTEMPTS];
 			if (typeof that.probNumTakes[probId] === 'undefined') {
 				// Got a problem ID we've never seen;
 				// remember that this new problem had
 				// nobody take it yet:
-				that.probNumTakes[probId] = 0
+				that.probNumTakes[probId] = numAttempts;
 				that.probIdArr.push(probId);
 				haveNewProbId = true;
+			} else {
+				that.probNumTakes[probId] = numAttempts;
 			}
 		}
+		//**** Not needed?
 		if (haveNewProbId) {
 			that.xscale.domain(that.probIdArr);
 		}
@@ -149,8 +147,11 @@ function GradeCharter() {
 		    	return that.xscale(d[that.GradeInfoIndx.PROBLEM_ID]);
 		    })
 		    .attr("y", function(d) {
-		    	// Another learner took one problem ID:
-		    	that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]] += 1;
+		    	// Another learner took one problem ID. Add his
+		    	// number of attempts at that problem to our record
+		    	// of takings for this problem:
+		    	that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]] += 
+		    		d[that.GradeInfoIndx.ATTEMPTS];
 		    	var newNumTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
 		    	// New maximum of takers of any of the problems
 		    	// we saw so far?
@@ -159,7 +160,7 @@ function GradeCharter() {
 		    		// Both max and min pixels of yscale change.
 		    		// range: the smallest bar: 1, will be
 		    		// chart height / number represented in tallest bar:
-		    		//*****that.yscale.domain([0, newNumTakers]);
+		    		that.yscale.domain([0, newNumTakers]);
 		    	}
 		    	return that.yscale(newNumTakers);
 		     })
