@@ -91,7 +91,7 @@ function GradeCharter() {
 
 	that.probNumTakes = {};
 	that.probIdArr = [];
-	that.maxGrade  = 0;
+	that.maxNumTakers  = 0;
 	
 	// Number of distinct problem IDs encountered so far:
 	//***********
@@ -107,7 +107,7 @@ function GradeCharter() {
 	that.xscale = d3.scale.ordinal()
 		// 0-->width, padding, and outer padding
 		// (i.e. left and right margins): 
-		.rangeRoundBands([that.barGap, that.svgW - that.barGap*2], .1, .3);
+		.rangeRoundBands([that.barGap, that.svgW - that.barGap], .1, .1);
 	
 	that.yscale = d3.scale.linear();
 	
@@ -119,27 +119,20 @@ function GradeCharter() {
 		
 		// Any problem ids we haven't seen yet?
 		var haveNewProbId = false;
-		var haveNewMaxGrade = false;
 		for (var i=0, len=tuples.length; i<len; i++) {
 			var tuple = tuples[i];
 			var probId = tuple[that.GradeInfoIndx.PROBLEM_ID];
-			if (that.xscale.domain().indexOf(probId) == -1) {
-				// Got a problem ID we've never seen:
+			if (typeof that.probNumTakes[probId] === 'undefined') {
+				// Got a problem ID we've never seen;
+				// remember that this new problem had
+				// nobody take it yet:
+				that.probNumTakes[probId] = 0
 				that.probIdArr.push(probId);
 				haveNewProbId = true;
-			}
-			var newGrade  = tuple[that.GradeInfoIndx.GRADE];
-			if (that.maxGrade < newGrade) {
-				that.maxGrade = newGrade;
-				haveNewMaxGrade = true;
 			}
 		}
 		if (haveNewProbId) {
 			that.xscale.domain(that.probIdArr);
-		}
-		if (haveNewMaxGrade) {
-			that.yscale.domain([0,that.maxGrade]);
-			that.yscale.range([that.svgH, 0]);
 		}
 		
 		// Scales will include all tuples: past and
@@ -154,12 +147,22 @@ function GradeCharter() {
 		    	return that.xscale(d[that.GradeInfoIndx.PROBLEM_ID]);
 		    })
 		    .attr("y", function(d) {
+		    	// Another learner took one problem ID:
+		    	that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]] += 1;
+		    	var newNumTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
+		    	// New maximum of takers of any single problem?
+		    	if (newNumTakers > that.maxNumTakers) {
+		    		that.maxNumTakers = newNumTakers;
+		    		that.yscale.range([that.svgH, that.maxNumTakers]);
+		    	}
 		    	// The subtraction makes bars grow bottom to top on screen:
-		    	return that.svgH - that.yscale(d[that.GradeInfoIndx.GRADE]);
+		    	return that.yscale(newNumTakers);
 		     })
 		    .attr("width", that.xscale.rangeBand())
 		    .attr("height", function(d) {
-		    	return that.yscale(d[that.GradeInfoIndx.GRADE])
+		    	var probId = d[that.GradeInfoIndx.PROBLEM_ID];
+		    	var numTakers = that.probNumTakes[probId];
+		    	return that.yscale(numTakers);
 		     })
 			.attr("fill", "teal");
 	}
