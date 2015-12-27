@@ -39,16 +39,6 @@
  *      WHERE course_display_name = "Medicine/HRP258/Statistics_in_Medicine";
  */
 
-var GradeInfoIndx = {
-		COURSE : 0,
-		LEARNER : 1,
-		GRADE : 2,
-		ATTEMPTS : 3,
-		FIRST_SUBMIT : 4,
-		LAST_SUBMIT : 5,
-		PROBLEM_ID : 6
-}
-
 var testTuples = [
 				   ["Medicine/HRP258/Statistics_in_Medicine",
 				    "3e43611e9969f85c5354894e66822434a7ee61d8",
@@ -88,19 +78,18 @@ function GradeCharter() {
 	that.vertScale = 5;
 
 	that.svg;
-	var xAxis;
-	var yAxis;
-	var xScale;
-	var yScale;
-	var xAxisPaddingHor;
-	var xAxisPaddingVer;
-	var yAxisPaddingHor;
-	var yAxisPaddingVer;
-
-	// Init the int --> ugly-problem-ID dict:
-	//that.intToProbId = {};
-	//****that.probIdToInt = {};
 	
+	that.GradeInfoIndx = {
+			COURSE : 0,
+			LEARNER : 1,
+			GRADE : 2,
+			ATTEMPTS : 3,
+			FIRST_SUBMIT : 4,
+			LAST_SUBMIT : 5,
+			PROBLEM_ID : 6
+	}	
+
+	that.probNumTakes = {};
 	that.probIdArr = [];
 	that.maxGrade  = 0;
 	
@@ -116,10 +105,9 @@ function GradeCharter() {
 		  		 .attr("height", that.svgH);
 	
 	that.xscale = d3.scale.ordinal()
-		.domain(that.probIdArr)
 		// 0-->width, padding, and outer padding
 		// (i.e. left and right margins): 
-		.rangeRoundBands([0, that.svgW, .1, .3]);
+		.rangeRoundBands([that.barGap, that.svgW - that.barGap*2], .1, .3);
 	
 	that.yscale = d3.scale.linear();
 	
@@ -131,21 +119,28 @@ function GradeCharter() {
 		
 		// Any problem ids we haven't seen yet?
 		var haveNewProbId = false;
+		var haveNewMaxGrade = false;
 		for (var i=0, len=tuples.length; i<len; i++) {
 			var tuple = tuples[i];
-			var probId = tuple[GradeInfoIndx.PROBLEM_ID];
-			var newGrade  = tuple[GradeInfoIndx.GRADE];
-			if (that.maxGrade < newGrade) {
-				that.maxGrade = newGrade;
-			}
-/*	****		if (typeof that.probIdToInt[probId] === 'undefined') {
-				// New problem
-				that.probIdArr.append(probId);
+			var probId = tuple[that.GradeInfoIndx.PROBLEM_ID];
+			if (that.xscale.domain().indexOf(probId) == -1) {
+				// Got a problem ID we've never seen:
+				that.probIdArr.push(probId);
 				haveNewProbId = true;
 			}
-*/		}
-		
-		that.yscale.domain([0,that.maxGrade]);
+			var newGrade  = tuple[that.GradeInfoIndx.GRADE];
+			if (that.maxGrade < newGrade) {
+				that.maxGrade = newGrade;
+				haveNewMaxGrade = true;
+			}
+		}
+		if (haveNewProbId) {
+			that.xscale.domain(that.probIdArr);
+		}
+		if (haveNewMaxGrade) {
+			that.yscale.domain([0,that.maxGrade]);
+			that.yscale.range([that.svgH, 0]);
+		}
 		
 		// Scales will include all tuples: past and
 		// this set, even if not all bars are visible in the
@@ -155,13 +150,16 @@ function GradeCharter() {
 		    .data(tuples)
 		    .enter()
 		    .append("rect")
+		    .attr("x", function(d) {
+		    	return that.xscale(d[that.GradeInfoIndx.PROBLEM_ID]);
+		    })
 		    .attr("y", function(d) {
 		    	// The subtraction makes bars grow bottom to top on screen:
 		    	return that.svgH - that.yscale(d[that.GradeInfoIndx.GRADE]);
 		     })
-		    .attr("width", x.rangeBand())
+		    .attr("width", that.xscale.rangeBand())
 		    .attr("height", function(d) {
-		    	return that.svgH - that.yscale(d[GradeInfoIndx.GRADE])
+		    	return that.yscale(d[that.GradeInfoIndx.GRADE])
 		     })
 			.attr("fill", "teal");
 	}
