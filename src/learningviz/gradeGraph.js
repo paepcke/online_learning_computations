@@ -127,13 +127,18 @@ function GradeCharter() {
 				that.probIdArr.push(probId);
 				haveNewProbId = true;
 			} else {
-				that.probNumTakes[probId] = numAttempts;
+				that.probNumTakes[probId] += numAttempts;
+			}
+			if (that.probNumTakes[probId] > that.maxNumTakers) {
+				that.maxNumTakers = that.probNumTakes[probId];
 			}
 		}
-		//**** Not needed?
+
 		if (haveNewProbId) {
 			that.xscale.domain(that.probIdArr);
 		}
+		
+		that.yscale.domain([0, that.maxNumTakers]);
 		
 		// Scales will include all tuples: past and
 		// this set, even if not all bars are visible in the
@@ -147,22 +152,11 @@ function GradeCharter() {
 		    	return that.xscale(d[that.GradeInfoIndx.PROBLEM_ID]);
 		    })
 		    .attr("y", function(d) {
-		    	// Another learner took one problem ID. Add his
-		    	// number of attempts at that problem to our record
-		    	// of takings for this problem:
-		    	that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]] += 
-		    		d[that.GradeInfoIndx.ATTEMPTS];
-		    	var newNumTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
-		    	// New maximum of takers of any of the problems
-		    	// we saw so far?
-		    	if (newNumTakers > that.maxNumTakers) {
-		    		that.maxNumTakers = newNumTakers;
-		    		// Both max and min pixels of yscale change.
-		    		// range: the smallest bar: 1, will be
-		    		// chart height / number represented in tallest bar:
-		    		that.yscale.domain([0, newNumTakers]);
-		    	}
-		    	return that.yscale(newNumTakers);
+		    	// Another learner to incorporate into the chart.
+		    	// How many attempts did his problem id take in 
+		    	// total across all learner?
+		    	var numTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
+		    	return that.yscale(numTakers);
 		     })
 		    .attr("width", that.xscale.rangeBand())
 		    .attr("height", function(d) {
@@ -176,5 +170,4 @@ function GradeCharter() {
 
 vizzer = new GradeCharter();
 
-console.log("I was loaded.");
 vizzer.updateViz(testTuples);
