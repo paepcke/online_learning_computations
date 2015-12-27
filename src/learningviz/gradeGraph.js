@@ -107,9 +107,11 @@ function GradeCharter() {
 	that.xscale = d3.scale.ordinal()
 		// 0-->width, padding, and outer padding
 		// (i.e. left and right margins): 
-		.rangeRoundBands([that.barGap, that.svgW - that.barGap], .1, .1);
+		.rangeRoundBands([that.barGap, that.svgW - that.barGap], .20, .5);
 	
-	that.yscale = d3.scale.linear();
+	that.yscale = d3.scale.linear()
+		.domain([0, 2]) // **** don't want that, want that set in commented below.
+		.range([that.svgH, 0]);
 	
 	GradeCharter.prototype.updateViz = function(tuples) {
 		/*
@@ -150,19 +152,22 @@ function GradeCharter() {
 		    	// Another learner took one problem ID:
 		    	that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]] += 1;
 		    	var newNumTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
-		    	// New maximum of takers of any single problem?
+		    	// New maximum of takers of any of the problems
+		    	// we saw so far?
 		    	if (newNumTakers > that.maxNumTakers) {
 		    		that.maxNumTakers = newNumTakers;
-		    		that.yscale.range([that.svgH, that.maxNumTakers]);
+		    		// Both max and min pixels of yscale change.
+		    		// range: the smallest bar: 1, will be
+		    		// chart height / number represented in tallest bar:
+		    		//*****that.yscale.domain([0, newNumTakers]);
 		    	}
-		    	// The subtraction makes bars grow bottom to top on screen:
 		    	return that.yscale(newNumTakers);
 		     })
 		    .attr("width", that.xscale.rangeBand())
 		    .attr("height", function(d) {
 		    	var probId = d[that.GradeInfoIndx.PROBLEM_ID];
 		    	var numTakers = that.probNumTakes[probId];
-		    	return that.yscale(numTakers);
+		    	return that.svgH - that.yscale(numTakers);
 		     })
 			.attr("fill", "teal");
 	}
