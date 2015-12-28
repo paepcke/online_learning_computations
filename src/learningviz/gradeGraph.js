@@ -87,7 +87,12 @@ function GradeCharter() {
 			FIRST_SUBMIT : 4,
 			LAST_SUBMIT : 5,
 			PROBLEM_ID : 6
-	}	
+	}
+	
+	that.UpdateInfoIndx = {
+			PROBLEM_ID : 0,
+			ATTEMPTS : 1
+	}
 
 	that.probNumTakes = {};
 	that.probIdArr = [];
@@ -147,7 +152,7 @@ function GradeCharter() {
 		that.yscale.domain([0, that.maxNumTakers]);
 
 		// Update the existing bars:
-		this.updateExistingGradeBars();
+		//*****this.updateExistingGradeBars();
 		
 		// Scales will include all tuples: past and
 		// this set, even if not all bars are visible in the
@@ -155,22 +160,26 @@ function GradeCharter() {
 		
 		var existingBars = that.svg.selectAll("rect")
 		    	.data(tuples, function(d) {
-		    			// Return the tuple's problemId and numAttempts
-		    		    // as an array:
-		    			return [d[that.GradeInfoIndx.PROBLEM_ID],
-		    			        d[that.GradeInfoIndx.ATTEMPTS];
-		    				
+		    			// Return the tuple's problemId as
+		    			// unique identifier:
+		    			//****return d; 
+		    			//****d[that.GradeInfoIndx.PROBLEM_ID];
+		    			return function(tuple) {
+		    				return tuple[that.GradeInfoIndx.PROBLEM_ID];
+		    			}
 		    		 })
-		    	// Updates of existing tuples:
-				.attr("y", function(problemId) {
-		    		var numTakers =  that.probNumTakes[problemId];
+/*		    	// Updates of existing tuples:
+				.attr("y", function(d) {
+					var numTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
 		    		return that.yscale(numTakers);
 		    	 })
-		    	.attr("height", function(problemId) {
-		    		return that.svgH - that.yscale(that.probNumTakes[probId]);
+		    	.attr("height", function(d) {
+		    		return that.svgH - that.yscale(that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]]);
 		    	})
-		    	
-		    	.exit()
+*/		    	
+		    	.enter()
+		    	// Add elements for the new data: 
+		    	.append("rect")
 				.attr("x", function(d) {
 					probId = d[that.GradeInfoIndx.PROBLEM_ID];
 					// Name this rectangle object by the probId
@@ -193,39 +202,6 @@ function GradeCharter() {
 					return that.svgH - that.yscale(numTakers);
 				 })
 						    	
-		    
-		    
-		var bars = that.svg.selectAll("rect")
-			.data(newProblemData)
-		    .enter()
-		    .append("rect")
-		    .attr("x", function(d) {
-		    	probId = d[that.GradeInfoIndx.PROBLEM_ID];
-		    	// Name this rectangle object by the probId
-		    	// it represents:
-		    	this.setAttribute("id", probId);
-		    	this.setAttribute("class", "gradebar")
-		    	return that.xscale(probId);
-		    })
-		    .attr("y", function(d) {
-		    	// Another learner to incorporate into the chart.
-		    	// How many attempts did his problem id take in 
-		    	// total across all learner?
-		    	var numTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
-		    	return that.yscale(numTakers);
-		     })
-		    .attr("width", that.xscale.rangeBand())
-		    .attr("height", function(d) {
-		    	var probId = d[that.GradeInfoIndx.PROBLEM_ID];
-		    	var numTakers = that.probNumTakes[probId];
-		    	return that.svgH - that.yscale(numTakers);
-		     })
-			.attr("fill", "teal");
-		
-		
-		
-		
-		
 /*		var bars = that.svg.selectAll("rect")
 		    .data(newProblemData)
 		    .enter()
@@ -253,14 +229,14 @@ function GradeCharter() {
 		     })
 			.attr("fill", "teal");
 */	}
-	
+/*	
 	this.updateExistingGradeBars = function() {
-		/*
+		
 		 * Given an array of problem IDs, go through the existing 
 		 * bars that represent attempts at those problems, and 
 		 * update the bars' height. We assume that all probIds 
 		 * do have bars.
-		 */
+		 
 		
 		var bars = d3.select("gradebar");
 
@@ -279,7 +255,7 @@ function GradeCharter() {
 		    })
 		}
 	}
-}
+*/}
 
 vizzer = new GradeCharter();
 
