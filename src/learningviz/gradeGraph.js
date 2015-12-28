@@ -40,31 +40,30 @@
  */
 
 var testTuples = [
-				   ["Medicine/HRP258/Statistics_in_Medicine",
-				    "3e43611e9969f85c5354894e66822434a7ee61d8",
-				    5,
-				    2,
-				    "2013-06-11 15:15:08",
-				    "2013-07-16 06:43:23",
-				    "i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3",
-				    ],
-/*				    [
-				     "Medicine/HRP258/Statistics_in_Medicine",
-				     "6a6c70f0f9672ca4a3e16bdb5407af51cd18e4e5",
-				     10,
-				     1,
-				     "2013-06-11 15:12:13",
-				     "2013-07-07 00:10:51",
-				     "i4x://Medicine/HRP258/problem/5542da143b054d0ba3efdb243b5eb343"
-				     ],
-				    ["Medicine/HRP258/Statistics_in_Medicine",
-				     "cb2bb63c14e6f5fc8d21b5f43c8fe412c7c64c39",
-				     7,
-				     1,
-				     "2013-06-11 15:21:11",
-				     "2013-07-1506:13:51",
-				     "i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3",
-					 ]
+				   {"course" : "Medicine/HRP258/Statistics_in_Medicine",
+				    "learner" : "3e43611e9969f85c5354894e66822434a7ee61d8",
+				    "grade" : 5,
+				    "attempts" : 2,
+				    "firstSubmit" : "2013-06-11 15:15:08",
+				    "lastSubmit" : "2013-07-16 06:43:23",
+				    "probId" : "i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3",
+				   },
+/*				   {"course" : "Medicine/HRP258/Statistics_in_Medicine",
+				    "learner" : "6a6c70f0f9672ca4a3e16bdb5407af51cd18e4e5",
+				    "grade" : 10,
+				    "attempts" : 1,
+				    "firstSubmit" : "2013-06-11 15:12:13",
+				    "lastSubmit" : "2013-07-07 00:10:51",
+				    "probId" : "i4x://Medicine/HRP258/problem/5542da143b054d0ba3efdb243b5eb343"
+				   },
+				   {"course" : "Medicine/HRP258/Statistics_in_Medicine",
+				    "learner" : "cb2bb63c14e6f5fc8d21b5f43c8fe412c7c64c39",
+				    "grade" : 7,
+				    "attempts" : 1,
+				    "firstSubmit" : "2013-06-11 15:21:11",
+				    "lastSubmit" : "2013-07-1506:13:51",
+				    "probId" : "i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3",
+				   }
 */                  ];
 
 function GradeCharter() {
@@ -79,20 +78,6 @@ function GradeCharter() {
 
 	that.svg;
 	
-	that.GradeInfoIndx = {
-			COURSE : 0,
-			LEARNER : 1,
-			GRADE : 2,
-			ATTEMPTS : 3,
-			FIRST_SUBMIT : 4,
-			LAST_SUBMIT : 5,
-			PROBLEM_ID : 6
-	}
-	
-	that.UpdateInfoIndx = {
-			PROBLEM_ID : 0,
-			ATTEMPTS : 1
-	}
 
 	that.probNumTakes = {};
 	that.probIdArr = [];
@@ -102,6 +87,7 @@ function GradeCharter() {
 	that.svg = d3.select("body").append("svg")
 		  		 .attr("width", that.svgW)
 		  		 .attr("height", that.svgH)
+		  		 .attr("class", "gradechart")
 		  		 .attr("id", "gradechart");
 	
 	that.xscale = d3.scale.ordinal()
@@ -113,28 +99,23 @@ function GradeCharter() {
 		//.domain([0, 2]) // **** don't want that, want that set in commented below.
 		.range([that.svgH, 0]);
 	
-	GradeCharter.prototype.updateViz = function(tuples) {
+	GradeCharter.prototype.updateViz = function(gradeObjs) {
 		/*
 		 * Public method called when a new set of grade info 
 		 * tuples arrives.
 		 */
 		
-		// Separate out the data rows for problem ids
-		// we have not seen before, and which therefore
-		// each needs a new bar:
-		var newProblemData     = [];
-		
-		for (var i=0, len=tuples.length; i<len; i++) {
-			var tuple = tuples[i];
-			var probId = tuple[that.GradeInfoIndx.PROBLEM_ID];
-			var numAttempts = tuple[that.GradeInfoIndx.ATTEMPTS];
+		for (var i=0, len=gradeObjs.length; i<len; i++) {
+			var gradeObj = gradeObjs[i];
+			var probId = gradeObj["probId"];
+			var numAttempts = gradeObj["attempts"];
 			if (typeof that.probNumTakes[probId] === 'undefined') {
 				// Got a problem ID we've never seen;
 				// remember that this new problem had
 				// nobody take it yet:
 				that.probNumTakes[probId] = numAttempts;
 				that.probIdArr.push(probId);
-				newProblemData.push(tuple);
+				haveNewProbId = true;
 			} else {
 				that.probNumTakes[probId] += numAttempts;
 			}
@@ -143,45 +124,42 @@ function GradeCharter() {
 			}
 		}
 
-		//**** Set earlier and get away with not doing it each time?
-		//**** might not work b/c d3 might copy the array.
-		if (newProblemData.length > 0) {
+		if (haveNewProbId) {
 			that.xscale.domain(that.probIdArr);
 		}
 		
 		that.yscale.domain([0, that.maxNumTakers]);
-
-		// Update the existing bars:
-		//*****this.updateExistingGradeBars();
 		
 		// Scales will include all tuples: past and
 		// this set, even if not all bars are visible in the
 		// viewport:
 		
-		var existingBars = that.svg.selectAll("rect")
-		    	.data(tuples, function(d) {
+		var gradeBars = that.svg.selectAll("rect")
+		    	.data(gradeObjs, function(d) {
 		    			// Return the tuple's problemId as
 		    			// unique identifier:
-		    			//****return d; 
-		    			//****d[that.GradeInfoIndx.PROBLEM_ID];
-		    			return function(tuple) {
-		    				return tuple[that.GradeInfoIndx.PROBLEM_ID];
-		    			}
-		    		 })
-/*		    	// Updates of existing tuples:
+		    			return d["probId"];
+		    	 })
+		    	 
+		    	// Updates of existing bars:
+		    	 
+		    	.attr("x", function(d) {
+		    		return that.xscale(d["probId"])
+ 		    	 })
 				.attr("y", function(d) {
-					var numTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
+					var numTakers =  that.probNumTakes[d["probId"]];
 		    		return that.yscale(numTakers);
 		    	 })
+		    	.attr("width", that.xscale.rangeBand())
 		    	.attr("height", function(d) {
-		    		return that.svgH - that.yscale(that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]]);
-		    	})
-*/		    	
+		    		return that.svgH - that.yscale(that.probNumTakes[d["probId"]]);
+		    	 })
+		    	
 		    	.enter()
 		    	// Add elements for the new data: 
 		    	.append("rect")
 				.attr("x", function(d) {
-					probId = d[that.GradeInfoIndx.PROBLEM_ID];
+					probId = d["probId"];
 					// Name this rectangle object by the probId
 					// it represents:
 					this.setAttribute("id", probId);
@@ -192,93 +170,40 @@ function GradeCharter() {
 					// Another learner to incorporate into the chart.
 					// How many attempts did his problem id take in 
 					// total across all learner?
-					var numTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
+					var numTakers =  that.probNumTakes[d["probId"]];
 					return that.yscale(numTakers);
 				 })
 				.attr("width", that.xscale.rangeBand())
 				.attr("height", function(d) {
-					var probId = d[that.GradeInfoIndx.PROBLEM_ID];
+					var probId = d["probId"];
 					var numTakers = that.probNumTakes[probId];
 					return that.svgH - that.yscale(numTakers);
 				 })
 						    	
-/*		var bars = that.svg.selectAll("rect")
-		    .data(newProblemData)
-		    .enter()
-		    .append("rect")
-		    .attr("x", function(d) {
-		    	probId = d[that.GradeInfoIndx.PROBLEM_ID];
-		    	// Name this rectangle object by the probId
-		    	// it represents:
-		    	this.setAttribute("id", probId);
-		    	this.setAttribute("class", "gradebar")
-		    	return that.xscale(probId);
-		    })
-		    .attr("y", function(d) {
-		    	// Another learner to incorporate into the chart.
-		    	// How many attempts did his problem id take in 
-		    	// total across all learner?
-		    	var numTakers =  that.probNumTakes[d[that.GradeInfoIndx.PROBLEM_ID]];
-		    	return that.yscale(numTakers);
-		     })
-		    .attr("width", that.xscale.rangeBand())
-		    .attr("height", function(d) {
-		    	var probId = d[that.GradeInfoIndx.PROBLEM_ID];
-		    	var numTakers = that.probNumTakes[probId];
-		    	return that.svgH - that.yscale(numTakers);
-		     })
-			.attr("fill", "teal");
-*/	}
-/*	
-	this.updateExistingGradeBars = function() {
-		
-		 * Given an array of problem IDs, go through the existing 
-		 * bars that represent attempts at those problems, and 
-		 * update the bars' height. We assume that all probIds 
-		 * do have bars.
-		 
-		
-		var bars = d3.select("gradebar");
-
-		for (var i=0; i<bars.length; i++) {
-			bar = bars[i];
-			
-			bar.setAttribute("y", function(d) {
-		    	var numTakers =  that.probNumTakes[this.getAttribute('probId')];
-		    	return that.yscale(numTakers);
-		     })
-		    .setAttribute("height", function(d) {
-		    	// This current bar's problem ID
-		    	// is stored in its 'probId' attr:
-		    	var rectProbId = this.getAttribute('probId');
-		    	return that.svgH - that.yscale(that.probNumTakes[rectProbId]);
-		    })
-		}
 	}
-*/}
+}
 
 vizzer = new GradeCharter();
 
 vizzer.updateViz(testTuples);
 setTimeout(function() {
 	nextData = [
-				    [
-				     "Medicine/HRP258/Statistics_in_Medicine",
-				     "6a6c70f0f9672ca4a3e16bdb5407af51cd18e4e5",
-				     10,
-				     1,
-				     "2013-06-11 15:12:13",
-				     "2013-07-07 00:10:51",
-				     "i4x://Medicine/HRP258/problem/5542da143b054d0ba3efdb243b5eb343"
-				     ],
-				    ["Medicine/HRP258/Statistics_in_Medicine",
-				     "cb2bb63c14e6f5fc8d21b5f43c8fe412c7c64c39",
-				     7,
-				     1,
-				     "2013-06-11 15:21:11",
-				     "2013-07-1506:13:51",
-				     "i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3",
-					 ]
+				   {"course" : "Medicine/HRP258/Statistics_in_Medicine",
+				    "learner" : "6a6c70f0f9672ca4a3e16bdb5407af51cd18e4e5",
+				    "grade" : 10,
+				    "attempts" : 1,
+				    "firstSubmit" : "2013-06-11 15:12:13",
+				    "lastSubmit" : "2013-07-07 00:10:51",
+				    "probId" : "i4x://Medicine/HRP258/problem/5542da143b054d0ba3efdb243b5eb343"
+				   },
+				   {"course" : "Medicine/HRP258/Statistics_in_Medicine",
+				    "learner" : "cb2bb63c14e6f5fc8d21b5f43c8fe412c7c64c39",
+				    "grade" : 7,
+				    "attempts" : 1,
+				    "firstSubmit" : "2013-06-11 15:21:11",
+				    "lastSubmit" : "2013-07-1506:13:51",
+				    "probId" : "i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3",
+				   }
 	            ];
 	vizzer.updateViz(nextData)
 	}, 3000);
