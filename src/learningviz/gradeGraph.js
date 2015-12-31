@@ -67,12 +67,43 @@ var testTuples = [
 */                  ];
 
 function GradeCharter() {
+
+	/************************** Instance Variables ********************/	
+	var that = this;
+
 	
+	var outerWidth = 960,
+	    outerHeight = 500,
+	    //****margin = {top: 20, right: 20, bottom: 20, left: 20},
+	    margin = {top: 0, right: 0, bottom: 0, left: 0},
+	    //****padding = {top: 60, right: 60, bottom: 60, left: 60},
+	    padding = {top: 60, right: 60, bottom: 60, left: 30},
+	    xLabelsHeight = 35,
+	    yLabelsWidth  = 20,
+	    xAxisTitleHeight = 20,
+	    yAxisTitleWidth = 25,
+	    innerWidth = outerWidth - margin.left - margin.right - yLabelsWidth - yAxisTitleWidth,
+	    innerHeight = outerHeight - margin.top - margin.bottom - xLabelsHeight - xAxisTitleHeight,
+		chartWidth = innerWidth - padding.left - padding.right,
+	    chartHeight = innerHeight - padding.top - padding.bottom,
+		chartOriginX = margin.left + padding.left + yLabelsWidth + yAxisTitleWidth,
+	    chartOriginY = chartHeight,
+	    xTitleOriginX = chartOriginX + chartWidth / 2,
+	    xTitleOriginY = chartHeight + xLabelsHeight,
+	    yTitleOriginX = chartOriginX - yAxisTitleWidth,
+	    yTitleOriginY = chartHeight - chartHeight/2;
+	
+	
+	
+	var svg;
+	
+	var probNumTakes = {};
+	var probIdArr = [];
+	var maxNumTakers  = 0;	
+		
 	/************************** Initialization ********************/
 	
 	
-	var that = this;
-
 	this.gradeCharter = function() {
 		
 /*		that.svgW = 900;
@@ -80,8 +111,9 @@ function GradeCharter() {
 		that.vertScale = 5;
 		that.xAxisPad = 20;
 		that.yAxisPad = 20;
-*/		
-		that.barGap = 4;
+*/
+		
+/*		that.barGap = 4;
 		that.margin = {top: 20, right: 20, bottom: 20, left: 20};
 		that.padding = {top: 10, right: 10, bottom: 10, left: 10};
 		that.outerWidth = 900;
@@ -90,22 +122,17 @@ function GradeCharter() {
 		that.innerHeight = that.outerHeight - that.margin.top - that.margin.bottom;
 		that.svgW= that.innerWidth - that.padding.left - that.padding.right;
 		that.svgH = that.innerHeight - that.padding.top - that.padding.bottom;
+*/		
 			
-	
-		that.svg;
-		
-	
-		that.probNumTakes = {};
-		that.probIdArr = [];
-		that.maxNumTakers  = 0;
+
 		
 		//console.log("Constructor called");
-		that.svg = d3.select("body").append("svg")
+		svg = d3.select("body").append("svg")
 			  		 .attr("class", "gradechart")
-			  		 .attr("width", that.outerWidth)
-			  		 .attr("height", that.outerHeight)
+			  		 .attr("width", outerWidth)
+			  		 .attr("height", outerHeight)
 					 .append("g")
-					 .attr("transform", "translate(" + that.margin.left + "," + that.margin.top + ")");
+					 .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 		
 		
 		that.xScale = d3.scale.ordinal()
