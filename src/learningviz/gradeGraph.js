@@ -125,11 +125,11 @@ function GradeCharter() {
 		    .rangeRoundBands([chartOriginX, chartWidth], .2,.5);		
 		
 		yScale = d3.scale.linear()
-			//.domain([0, 2]) // **** don't want that, want that set in commented below.
+			//****.domain([0, 2]) // **** don't want that, want that set in commented below.
 		    .range([chartOriginY, margin.top + padding.top]);
 		
 		this.createAxes(xScale, yScale);
-		this.rescaleAxes();
+		//****this.rescaleAxes();
 		
 	}
 	
@@ -205,8 +205,8 @@ function GradeCharter() {
 	 *-------------*/
 
 	this.rescaleAxes = function() {
-		svg.selectAll("g.y.axis")
-		    .call(yAxis);
+		svg.select("#xAxisGroup").call(xAxis);
+		svg.select("#yAxisGroup").call(yAxis);
 	}
 	
 	/*-----------------------
@@ -226,11 +226,13 @@ function GradeCharter() {
 			.attr("id", "xAxisGroup")
 			.attr("class", "axis")
 			.attr("transform", "translate(0, " + chartHeight + ")")
+			.call(xAxis)
 
 		svg.append("g")
 			.attr("id", "yAxisGroup")
 			.attr("class", "axis")
 			.attr("transform", "translate(" + chartOriginX + ", 0)")
+			.call(yAxis)
 						
 		// Axis titles --- X axis:
 		svg.append("text")
