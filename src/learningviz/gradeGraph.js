@@ -81,7 +81,7 @@ function GradeCharter() {
 	    xLabelsHeight = 35,
 	    yLabelsWidth  = 20,
 	    xAxisTitleHeight = 20,
-	    yAxisTitleWidth = 25,
+	    yAxisTitleWidth = 30,
 	    innerWidth = outerWidth - margin.left - margin.right - yLabelsWidth - yAxisTitleWidth,
 	    innerHeight = outerHeight - margin.top - margin.bottom - xLabelsHeight - xAxisTitleHeight,
 		chartWidth = innerWidth - padding.left - padding.right,
@@ -290,12 +290,18 @@ function GradeCharter() {
 
 		if (haveNewProbId) {
 			xScale.domain(probIdArr);
-			// Update the xAxis labels:
+			// Update the xAxis labels: this
+			// function will be called with
+			// d being one problem ID. The func
+			// must return a corresponding x Axis label.
+			// We just label with the problem's sequence
+			// number. The '+1' is to make the counting
+			// 1-based: first problem is 1:
 			xAxis.tickFormat(function(d) {
-						return probIdArr.indexOf(d["probId"]);
+						return probIdArr.indexOf(d) + 1;
 						})
 		}
-		
+
 		yScale.domain([0, maxNumTakers]);
 	}
 	
