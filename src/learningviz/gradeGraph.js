@@ -93,7 +93,7 @@ function GradeCharter() {
 	    yTitleOriginX = chartOriginX - yAxisTitleWidth,
 	    yTitleOriginY = chartHeight - chartHeight/2;
 	
-	var transitionDuration = 3000;
+	var transitionDuration = 1500;
 	
 	var svg;
 	var xScale;
@@ -143,18 +143,14 @@ function GradeCharter() {
 		// new ones as needed:
 		
 		var gradeBars = svg.selectAll("rect")
-		
 		    	.data(gradeObjs, function(d) {
-		    			// Return the tuple's problemId as
+		    	 		// Return the tuple's problemId as
 		    			// unique identifier:
 		    			return d["probId"];
-		    	 })
-		    	
-		    	// Updates of existing bars:
-		    	 
-   	    	   .transition().duration(transitionDuration)
-
-		    	 
+		    	 });
+		    			    	
+		// Updates of existing bars:
+   	    gradeBars.transition().duration(transitionDuration)
 		    	.attr("x", function(d) {
 		    		return xScale(d["probId"])
  		    	 })
@@ -166,12 +162,11 @@ function GradeCharter() {
 		    	.attr("height", function(d) {
 		    		return chartHeight - yScale(probNumTakes[d["probId"]]);
 		    	 })
-		    	
-		    	// Done updating existing grade bars.
-		    	// Now add bars for any new problems that
-		    	// were delivered.
-		    	.enter()
-				
+		    	 
+		// Done updating existing grade bars.
+		// Now add bars for any new problems that
+		// were delivered.
+		gradeBars.enter()
 		    	// Add elements for the new data: 
 		    	.append("rect")
 		    	.style("opacity", 0)
@@ -198,6 +193,8 @@ function GradeCharter() {
 				 })
 				.transition().duration(transitionDuration)
 				.style("opacity", 1);
+				
+				
 		this.rescaleAxes();
 	}
 	
