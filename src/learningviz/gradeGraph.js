@@ -72,12 +72,13 @@ function GradeCharter() {
 	var that = this;
 
 	
-	var outerWidth = 960,
+	var //****outerWidth = 960,
+		outerWidth = 500,
 	    outerHeight = 500,
-	    //****margin = {top: 20, right: 20, bottom: 20, left: 20},
-	    margin = {top: 0, right: 0, bottom: 0, left: 0},
-	    //****padding = {top: 60, right: 60, bottom: 60, left: 60},
-	    padding = {top: 10, right: 10, bottom: 10, left: 10},
+	    margin = {top: 20, right: 20, bottom: 20, left: 20},
+	    //****margin = {top: 0, right: 0, bottom: 0, left: 0},
+	    padding = {top: 60, right: 60, bottom: 60, left: 60},
+	    //****padding = {top: 10, right: 10, bottom: 10, left: 10},
 	    xLabelsHeight = 35,
 	    yLabelsWidth  = 20,
 	    xAxisTitleHeight = 20,
@@ -108,6 +109,9 @@ function GradeCharter() {
 	/************************** Initialization ********************/
 	
 	
+	/*-----------------------
+	 * init
+	 *-------------*/
 	this.init= function() {
 		
 		svg = d3.select("body").append("svg")
@@ -129,6 +133,10 @@ function GradeCharter() {
 	}
 	
 	/************************** Public Methods ********************/
+
+	/*-----------------------
+	 * updateViz
+	 *-------------*/
 	
 	GradeCharter.prototype.updateViz = function(gradeObjs) {
 		/*
@@ -205,16 +213,97 @@ function GradeCharter() {
 	 *-------------*/
 
 	this.rescaleAxes = function() {
-		//*****svg.select("#xAxisGroup").call(xAxis);
 		svg.select("#xAxisGroup")
-			.transition()
-			.duration(transitionDuration)
+			.transition().duration(transitionDuration)
 			.call(xAxis);
-		//****svg.select("#yAxisGroup").call(yAxis);
 		svg.select("#yAxisGroup")
-			.transition()
-			.duration(transitionDuration)
+			.transition().duration(transitionDuration)
 			.call(yAxis);
+		
+		// Move the axis Titles:
+		if (xScale.domain().length > 0) {
+			// At least one problem bar exists. Find the middle
+			// of all the problem bars:
+			var xAxisMidpoint = this.computeXTitleMidpoint();
+			svg.select("#xAxisTitle")
+				.transition().duration(transitionDuration)
+				.attr("transform", "translate(" + xAxisMidpoint + "," + xTitleOriginY + ")")
+		}
+		if (yScale.domain().length > 0) {
+			var yAxisMidpoint = this.computeYTitleMidpoint();
+			svg.select("#yAxisTitle")
+				.transition().duration(transitionDuration)
+				.attr("transform", "translate(" + yTitleOriginX + "," + yAxisMidpoint + "),rotate(-90)")
+		}
+	}
+	
+	/*-----------------------
+	 * computeXTitleMidpoint
+	 *-------------*/
+	
+	this.computeXTitleMidpoint = function() {
+		
+		var xPoints = xScale.domain();
+		var numXPoints = xPoints.length;
+		if (numXPoints == 0) {
+			return xTitleOriginX;
+		} else if (numXPoints == 1) {
+			// Middle of X title is under
+			// the one and only bar, plus half
+			// a bar width:
+			return xScale(xPoints[0]) + xScale.rangeBand()/2;
+		}
+		// Got at least two points on the X axis.
+		// If an even number, get positions of
+		// ticks on right and left of mid point,
+		// and interpolate. Else take the x position
+		// of the middle tick:
+		if (numXPoints % 2 == 0) {
+			// Even number of x-ticks; get pixel address 
+			// of points on left and right of the middle:
+			var left  = xScale(xPoints[numXPoints/2 - 1]);
+			var right = xScale(xPoints[numXPoints/2]);
+			// Interpolate between the left and right point,
+			// and add half a bar width, b/c scale addresses
+			// are to the lower left edge of a bar:
+			return left + (right - left)/2  + xScale.rangeBand()/2;
+		} else {
+			// Odd number of x ticks:
+			return xScale(xPoints[Math.ceil(numXPoints/2)])  + xScale.rangeBand()/2;
+		}
+	}
+
+	/*-----------------------
+	 * computeYTitleMidpoint
+	 *-------------*/
+	
+	this.computeYTitleMidpoint = function() {
+		
+		var yPoints = yScale.domain();
+		var numYPoints = yPoints.length;
+		if (numYPoints == 0) {
+			return yTitleOriginX;
+		} else if (numYPoints == 1) {
+			// Middle of Y title is next to
+			// the one and only labeled tick:
+			return yScale(yPoints[0]);
+		}
+		// Got at least two labeled ticks on the Y axis.
+		// If an even number, get positions of
+		// ticks on top and bottom of mid point,
+		// and interpolate. Else take the y position
+		// of the middle tick:
+		if (numYPoints % 2 == 0) {
+			// Even number of y-ticks; get y-pixel address 
+			// of points top and bottom of the middle:
+			var bottom  = yScale(yPoints[numYPoints/2 - 1]);
+			var top = yScale(yPoints[numYPoints/2]);
+			// Interpolate between the bottom and top point,
+			return bottom - (bottom-top)/2;
+		} else {
+			// Odd number of y ticks:
+			return yScale(yPoints[Math.ceil(numYPoints/2)]);
+		}
 	}
 	
 	/*-----------------------
@@ -245,11 +334,13 @@ function GradeCharter() {
 		// Axis titles --- X axis:
 		svg.append("text")
 		    .attr("class", "axisTitle")
+		    .attr("id", "xAxisTitle")
 		    .attr("text-anchor", "middle")
 		    .attr("transform", "translate(" + xTitleOriginX + "," + xTitleOriginY + ")")
 		    .text("Assignments");
 		svg.append("text")
 		    .attr("class", "axisTitle")
+		    .attr("id", "yAxisTitle")
 		    .attr("text-anchor", "middle")
 		    .attr("transform", "translate(" + yTitleOriginX + "," + yTitleOriginY + "), rotate(-90)")
 		    .text("Number of learners");
