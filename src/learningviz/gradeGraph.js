@@ -93,7 +93,7 @@ function GradeCharter() {
 	    yTitleOriginX = chartOriginX - yAxisTitleWidth,
 	    yTitleOriginY = chartHeight - chartHeight/2;
 	
-	
+	var transitionDuration = 3000;
 	
 	var svg;
 	var xScale;
@@ -110,7 +110,6 @@ function GradeCharter() {
 	
 	this.init= function() {
 		
-		//console.log("Constructor called");
 		svg = d3.select("body").append("svg")
 			  		 .attr("class", "gradechart")
 			  		 .attr("width", outerWidth)
@@ -120,17 +119,13 @@ function GradeCharter() {
 		
 		
 		xScale = d3.scale.ordinal()
-			// 0-->width, padding, and outer padding
-			// (i.e. left and right margins):
 		    .rangeRoundBands([chartOriginX, chartWidth], .2,.5);		
 		
 		yScale = d3.scale.linear()
-			//****.domain([0, 2]) // **** don't want that, want that set in commented below.
+			// Domain will be set when the y axis is rescaled.
 		    .range([chartOriginY, margin.top + padding.top]);
 		
 		this.createAxes(xScale, yScale);
-		//****this.rescaleAxes();
-		
 	}
 	
 	/************************** Public Methods ********************/
@@ -148,13 +143,17 @@ function GradeCharter() {
 		// new ones as needed:
 		
 		var gradeBars = svg.selectAll("rect")
+		
 		    	.data(gradeObjs, function(d) {
 		    			// Return the tuple's problemId as
 		    			// unique identifier:
 		    			return d["probId"];
 		    	 })
-		    	 
+		    	
 		    	// Updates of existing bars:
+		    	 
+   	    	   .transition().duration(transitionDuration)
+
 		    	 
 		    	.attr("x", function(d) {
 		    		return xScale(d["probId"])
@@ -172,8 +171,10 @@ function GradeCharter() {
 		    	// Now add bars for any new problems that
 		    	// were delivered.
 		    	.enter()
+				
 		    	// Add elements for the new data: 
 		    	.append("rect")
+		    	.style("opacity", 0)
 				.attr("x", function(d) {
 					probId = d["probId"];
 					// Name this rectangle object by the probId
@@ -194,7 +195,9 @@ function GradeCharter() {
 					var probId = d["probId"];
 					var numTakers = probNumTakes[probId];
 					return chartHeight - yScale(numTakers);
-				 });
+				 })
+				.transition().duration(transitionDuration)
+				.style("opacity", 1);
 		this.rescaleAxes();
 	}
 	
@@ -205,8 +208,16 @@ function GradeCharter() {
 	 *-------------*/
 
 	this.rescaleAxes = function() {
-		svg.select("#xAxisGroup").call(xAxis);
-		svg.select("#yAxisGroup").call(yAxis);
+		//*****svg.select("#xAxisGroup").call(xAxis);
+		svg.select("#xAxisGroup")
+			.transition()
+			.duration(transitionDuration)
+			.call(xAxis);
+		//****svg.select("#yAxisGroup").call(yAxis);
+		svg.select("#yAxisGroup")
+			.transition()
+			.duration(transitionDuration)
+			.call(yAxis);
 	}
 	
 	/*-----------------------
@@ -305,6 +316,7 @@ function GradeCharter() {
 		yScale.domain([0, maxNumTakers]);
 	}
 	
+	// Call the init function once for setup:
 	this.init();
 }
 
