@@ -77,7 +77,7 @@ function GradeCharter() {
 	    //****margin = {top: 20, right: 20, bottom: 20, left: 20},
 	    margin = {top: 0, right: 0, bottom: 0, left: 0},
 	    //****padding = {top: 60, right: 60, bottom: 60, left: 60},
-	    padding = {top: 60, right: 60, bottom: 60, left: 30},
+	    padding = {top: 10, right: 10, bottom: 10, left: 10},
 	    xLabelsHeight = 35,
 	    yLabelsWidth  = 20,
 	    xAxisTitleHeight = 20,
@@ -96,6 +96,10 @@ function GradeCharter() {
 	
 	
 	var svg;
+	var xScale;
+	var yScale;
+	var xAxis;
+	var yAxis;
 	
 	var probNumTakes = {};
 	var probIdArr = [];
@@ -104,27 +108,7 @@ function GradeCharter() {
 	/************************** Initialization ********************/
 	
 	
-	this.gradeCharter = function() {
-		
-/*		that.svgW = 900;
-		that.svgH = 100;
-		that.vertScale = 5;
-		that.xAxisPad = 20;
-		that.yAxisPad = 20;
-*/
-		
-/*		that.barGap = 4;
-		that.margin = {top: 20, right: 20, bottom: 20, left: 20};
-		that.padding = {top: 10, right: 10, bottom: 10, left: 10};
-		that.outerWidth = 900;
-		that.outerHeight = 100;
-		that.innerWidth = that.outerWidth - that.margin.left - that.margin.right;
-		that.innerHeight = that.outerHeight - that.margin.top - that.margin.bottom;
-		that.svgW= that.innerWidth - that.padding.left - that.padding.right;
-		that.svgH = that.innerHeight - that.padding.top - that.padding.bottom;
-*/		
-			
-
+	this.init= function() {
 		
 		//console.log("Constructor called");
 		svg = d3.select("body").append("svg")
@@ -135,17 +119,19 @@ function GradeCharter() {
 					 .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 		
 		
-		that.xScale = d3.scale.ordinal()
+		xScale = d3.scale.ordinal()
 			// 0-->width, padding, and outer padding
-			// (i.e. left and right margins): 
-			.rangeRoundBands([that.barGap, that.svgW - that.barGap], .20, .5);
+			// (i.e. left and right margins):
+		    .rangeRoundBands([chartOriginX, chartWidth], .2,.5);		
 		
-		that.yScale = d3.scale.linear()
+		yScale = d3.scale.linear()
 			//.domain([0, 2]) // **** don't want that, want that set in commented below.
-			.range([that.svgH, 0]); //*****?
+		    .range([chartOriginY, margin.top + padding.top]);
 		
+		this.createAxes(xScale, yScale);
+		this.rescaleAxes();
 		
-	}();
+	}
 	
 	/************************** Public Methods ********************/
 	
@@ -161,7 +147,7 @@ function GradeCharter() {
 		// Update height of existing bars, and add
 		// new ones as needed:
 		
-		var gradeBars = that.svg.selectAll("rect")
+		var gradeBars = svg.selectAll("rect")
 		    	.data(gradeObjs, function(d) {
 		    			// Return the tuple's problemId as
 		    			// unique identifier:
@@ -171,15 +157,15 @@ function GradeCharter() {
 		    	// Updates of existing bars:
 		    	 
 		    	.attr("x", function(d) {
-		    		return that.xScale(d["probId"])
+		    		return xScale(d["probId"])
  		    	 })
 				.attr("y", function(d) {
-					var numTakers =  that.probNumTakes[d["probId"]];
-		    		return that.yScale(numTakers);
+					var numTakers =  probNumTakes[d["probId"]];
+		    		return yScale(numTakers);
 		    	 })
-		    	.attr("width", that.xScale.rangeBand())
+		    	.attr("width", xScale.rangeBand())
 		    	.attr("height", function(d) {
-		    		return that.svgH - that.yScale(that.probNumTakes[d["probId"]]);
+		    		return chartHeight - yScale(probNumTakes[d["probId"]]);
 		    	 })
 		    	
 		    	// Done updating existing grade bars.
@@ -194,24 +180,34 @@ function GradeCharter() {
 					// it represents:
 					this.setAttribute("id", probId);
 					this.setAttribute("class", "gradebar")
-					return that.xScale(probId);
+					return xScale(probId);
 				})
 				.attr("y", function(d) {
 					// Another learner to incorporate into the chart.
 					// How many attempts did his problem id take in 
 					// total across all learner?
-					var numTakers =  that.probNumTakes[d["probId"]];
-					return that.yScale(numTakers);
+					var numTakers =  probNumTakes[d["probId"]];
+					return yScale(numTakers);
 				 })
-				.attr("width", that.xScale.rangeBand())
+				.attr("width", xScale.rangeBand())
 				.attr("height", function(d) {
 					var probId = d["probId"];
-					var numTakers = that.probNumTakes[probId];
-					return that.svgH - that.yScale(numTakers);
+					var numTakers = probNumTakes[probId];
+					return chartHeight - yScale(numTakers);
 				 });
+		this.rescaleAxes();
 	}
 	
 	/************************** Private Methods ********************/
+	
+	/*-----------------------
+	 * rescaleAxes
+	 *-------------*/
+
+	this.rescaleAxes = function() {
+		svg.selectAll("g.y.axis")
+		    .call(yAxis);
+	}
 	
 	/*-----------------------
 	 * createAxes
@@ -219,14 +215,34 @@ function GradeCharter() {
 	
 	this.createAxes = function(xScale, yScale) {
 		
-		that.xAxis = d3.svg.axis()
+		xAxis = d3.svg.axis()
 					   .scale(xScale)
 					   .orient("bottom");
-		that.svg.append("g")
+        yAxis = d3.svg.axis()
+        			  .scale(yScale)
+        			  .orient("left");
+
+        svg.append("g")
 			.attr("id", "xAxisGroup")
 			.attr("class", "axis")
-			//*****.attr("transform", "translate(0, " + that.svgH + ")")
-			.call(that.xAxis);
+			.attr("transform", "translate(0, " + chartHeight + ")")
+
+		svg.append("g")
+			.attr("id", "yAxisGroup")
+			.attr("class", "axis")
+			.attr("transform", "translate(" + chartOriginX + ", 0)")
+						
+		// Axis titles --- X axis:
+		svg.append("text")
+		    .attr("class", "axisTitle")
+		    .attr("text-anchor", "middle")
+		    .attr("transform", "translate(" + xTitleOriginX + "," + xTitleOriginY + ")")
+		    .text("Assignments");
+		svg.append("text")
+		    .attr("class", "axisTitle")
+		    .attr("text-anchor", "middle")
+		    .attr("transform", "translate(" + yTitleOriginX + "," + yTitleOriginY + "), rotate(-90)")
+		    .text("Number of learners");
 		
 	}
 	
@@ -255,35 +271,33 @@ function GradeCharter() {
 			var gradeObj = gradeObjs[i];
 			var probId = gradeObj["probId"];
 			var numAttempts = gradeObj["attempts"];
-			if (typeof that.probNumTakes[probId] === 'undefined') {
+			if (typeof probNumTakes[probId] === 'undefined') {
 				// Got a problem ID we've never seen;
 				// remember that this new problem had
 				// nobody take it yet:
-				that.probNumTakes[probId] = numAttempts;
-				that.probIdArr.push(probId);
+				probNumTakes[probId] = numAttempts;
+				probIdArr.push(probId);
 				haveNewProbId = true;
 			} else {
-				that.probNumTakes[probId] += numAttempts;
+				probNumTakes[probId] += numAttempts;
 			}
-			if (that.probNumTakes[probId] > that.maxNumTakers) {
-				that.maxNumTakers = that.probNumTakes[probId];
+			if (probNumTakes[probId] > maxNumTakers) {
+				maxNumTakers = probNumTakes[probId];
 			}
 		}
 
 		if (haveNewProbId) {
-			that.xScale.domain(that.probIdArr);
+			xScale.domain(probIdArr);
 			// Update the xAxis labels:
-			that.xAxis.tickFormat(function(d) {
-						return that.probIdArr.indexOf(d["probId"]);
+			xAxis.tickFormat(function(d) {
+						return probIdArr.indexOf(d["probId"]);
 						})
 		}
 		
-		that.yScale.domain([0, that.maxNumTakers]);
-		
-
+		yScale.domain([0, maxNumTakers]);
 	}
 	
-	this.createAxes(that.xScale, that.yScale);
+	this.init();
 }
 
 vizzer = new GradeCharter();
