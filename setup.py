@@ -9,10 +9,11 @@ setup(
     # Couldn't get numpy install to work without
     # an out-of-band: sudo apt-get install python-dev
     setup_requires   = ['nose>=1.1.2'],
-    install_requires = ['pymysql_utils>=0.49', 
+    install_requires = ['pymysql_utils>=0.51', 
 			'configparser>=3.3.0r2', 
 			'argparse>=1.2.1', 
-			'numpy>=1.8.0'
+			'numpy>=1.8.0',
+			'redis_bus_python>=0.0.4'
 			],
     tests_require    = ['sentinels>=0.0.6', 'nose>=1.0'],
 
