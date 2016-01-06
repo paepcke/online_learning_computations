@@ -1,4 +1,10 @@
 /*
+ * TODO:
+ *     o Maybe convert to functional like js_bus_bridge.js
+ *     o Add 'testing' as a param for instance creation?
+ *     o Add optional callback function to subscribeToTopic() 
+ *     
+
  * Receive tuples of grades from a WebSocket, and
  * visualize in a browser window. The viz will 
  * continuously update. The tuples are expected to
@@ -66,7 +72,7 @@ var testTuples = [
 				   }
 */                  ];
 
-TESTING = true;
+TESTING = false;
 
 function GradeCharter() {
 
