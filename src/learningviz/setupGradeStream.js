@@ -1,13 +1,30 @@
 //console.log(vizzer);
 var gradeReceiver = function(gradeData) {
 	console.log(gradeData);
+	//vizzer.updateViz([gradeData]);
 }
 
-bus = busInteractor.getInstance();
+var bus;
+var promise = busInteractor.getInstance();
+promise.then(function(instance) {
+	bus = instance;
+	kickoff();
+    },
+	function(err_msg) {
+		alert(err_msg);
+	}
+);
 
-bus.setMsgCallback(gradeReceiver);
-bus.subscribeToTopic('gradesCompilers');
-//bus.subscribedTo();
+var kickoff = function() {
+	bus.setMsgCallback(gradeReceiver);
+	bus.subscribeToTopic('gradesCompilers');
+	//*****
+	//bus.subscribedTo(function(subscriptions) { console.log (subscriptions)});
+	//*****
+	
+}									  
+									  
+
 
 var testData = 
 			nextData = [
