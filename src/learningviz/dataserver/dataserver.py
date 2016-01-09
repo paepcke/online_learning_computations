@@ -49,7 +49,7 @@ class DataServer(object):
         
     def send_all(self):
         row_count = 0
-        print('Starting to publish data...')
+        print('Starting to publish data to %s...' % self.topic)
         for info in self.it:
             if len(info) == 0:
                 # Empty line in CSV file:

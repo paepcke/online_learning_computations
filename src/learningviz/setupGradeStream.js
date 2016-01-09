@@ -1,7 +1,10 @@
+// TODO:
+//   o If num_attempts missing, assume 1.
+
 //console.log(vizzer);
 var gradeReceiver = function(gradeData) {
 	console.log(gradeData);
-	//vizzer.updateViz([gradeData]);
+	vizzer.updateViz([gradeData]);
 }
 
 var bus;
