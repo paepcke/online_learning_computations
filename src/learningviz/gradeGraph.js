@@ -142,7 +142,7 @@ function gradeCharter() {
 		
 		
 		my.xScale = d3.scale.ordinal()
-		    .rangeRoundBands([my.chartOriginX, my.chartWidth], .2,.5);		
+		    .rangeRoundBands([my.chartOriginX, my.chartWidth], .2,.1);		
 		
 		my.yScale = d3.scale.linear()
 			// Domain will be set when the y axis is rescaled.
@@ -189,6 +189,13 @@ function gradeCharter() {
 		}
 		// Update the internal record of the data:
 		var newProbGradeObjs = my.updateDataRepAndScales(gradeObjs);
+		//******
+		var newProbIds = [];
+		for (var i=0; i< newProbGradeObjs.length; i++) {
+			newProbIds.push(newProbGradeObjs[i]['probId']);
+		}
+		
+		//******		
 		my.rescaleAxes();
 		
 		// Update height of existing bars, and add
@@ -196,8 +203,9 @@ function gradeCharter() {
 		
 		// ENTER new rectangles just for the never-seen problems:
 		var gradeBars = my.svg.selectAll("gradebar")
-		    	 .data(my.probIdArr) // array of problem IDs
-		    	 .enter()
+		    	 .data(newProbIds) // array of problem IDs
+		    	 
+		gradeBars.enter()
 		    	 .append("rect")
 		    	 //*****.style("opacity", 1)
 		    	 .attr("class", "gradebar")
@@ -207,53 +215,26 @@ function gradeCharter() {
 		
 		// UPDATE existing rects:
 		    	//*****.style("opacity", 0)
-				.attr("x", function(probId) {
-					// Name this rectangle object by the probId
-					// it represents:
-					return my.xScale(probId);
-				})
-				.attr("y", function(probId) {
-					// How many attempts did his problem id take in 
-					// total across all learner?
-					var numTakers =  my.probNumTakes[probId]
-					return my.yScale(numTakers);
-				 })
-				.attr("width", my.xScale.rangeBand())
-				.attr("height", function(probId) {
-					var numTakers = my.probNumTakes[probId];
-					return my.chartHeight - my.yScale(numTakers);
-				 })
-				 .call(my.xAxis)
+		gradeBars.attr("x", function(probId) {
+				 		// Name this rectangle object by the probId
+						// it represents:
+						return my.xScale(probId);
+						})
+				  .attr("y", function(probId) {
+						// How many attempts did his problem id take in 
+						// total across all learner?
+						var numTakers =  my.probNumTakes[probId]
+						return my.yScale(numTakers);
+					 	})
+				  //*****.attr("width", my.xScale.rangeBand())
+				  .attr("width", my.xScale.rangeBand() / 2.0)
+				  .attr("height", function(probId) {
+						var numTakers = my.probNumTakes[probId];
+						return my.chartHeight - my.yScale(numTakers);
+					 	});
 				//****.transition().duration(my.transitionDuration)
 				//****.style("opacity", 1);
-				 
-/*		var gradeBars = my.svg.selectAll("rect")
-		    	.data(gradeObjs, function(d) {
-		    	 		// Return the tuple's problemId as
-		    			// unique identifier:
-		    			return d["probId"];
-		    	 });
-		    			    	
-		// Updates of existing bars:
-   	    gradeBars.transition().duration(my.transitionDuration)
-		    	.attr("x", function(d) {
-		    		return my.xScale(d["probId"])
- 		    	 })
-				.attr("y", function(d) {
-					var numTakers =  my.probNumTakes[d["probId"]];
-		    		return my.yScale(numTakers);
-		    	 })
-		    	//.attr("width", my.xScale.rangeBand())
-		    	.attr("width", function(d) {
-		    		//*****
-		    		console.log(my.xScale.rangeBand());
-		    		//*****
-		    		return my.xScale.rangeBand()
-			    	})
-		    	.attr("height", function(d) {
-		    		return my.chartHeight - my.yScale(my.probNumTakes[d["probId"]]);
-		    	 })
-*/	}
+	}
 	
 	/************************** Private Methods ********************/
 	

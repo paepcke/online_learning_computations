@@ -48,17 +48,22 @@ class DataServer(object):
         self.colnames = []
         self.topic = topic
         
-    def send_all(self):
+    def send_all(self, batch_size=1):
         row_count = 0
+        #******
+        tmp = []
+        #******
         print('Starting to publish data to %s...' % self.topic)
         for info in self.it:
             if len(info) == 0:
                 # Empty line in CSV file:
                 continue
             #**************
-            if info[6] != 'i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3':
-                tmp = info
-                continue
+            #if info[6] != 'i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3':
+            #    tmp = info
+            #    continue
+            tmp.append(info)
+            continue
             #**************
             try:
                 bus_msg = BusMessage(content=self.make_json(info),
@@ -70,13 +75,16 @@ class DataServer(object):
             row_count += 1
             time.sleep(DataServer.inter_msg_delay)
         #**************
-        bus_msg = BusMessage(content=self.make_json(tmp),
+        dict_arr = []
+        for one_tuple in tmp:
+            dict_arr.append(self.make_data_dict(one_tuple))
+        bus_msg = BusMessage(content=json.dumps(dict_arr),
                                      topicName=self.topic)
         self.bus.publish(bus_msg)
         #**************
         print("Published %s data rows." % row_count)
     
-    def make_json(self, content_line_arr):
+    def make_data_dict(self, content_line_arr):
         '''
         given an array [10,20,30], uses method
         invent_colnames() to return a JSON string
@@ -88,16 +96,15 @@ class DataServer(object):
         :param content_line_arr: array of values out of a CSV file or 
             query result.
         :type content_line_arr: [<anyOtherThanObject>]
-        :result: a legal JSON string.
-        :rtype str
-        :raise: TypeError when JSON parsing fails. 
+        :result: a dict {<colName> : <colVal>}
+        :rtype: {str, any}
         '''
         self.colnames = self.invent_colnames(self.colnames, content_line_arr)
         # Make dict by combining the colname and data values
         # like a zipper. If fewer data values than columns,
         # fill with 'null' string:
         dataDict = dict(itertools.izip_longest(self.colnames, content_line_arr, fillvalue='null'))
-        return json.dumps(dataDict)
+        return dataDict
 
     def invent_colnames(self, existing_colnames, data_arr):
         '''
