@@ -11,6 +11,7 @@ import itertools
 import os
 import sys
 import time
+import json
 
 from pymysql_utils.pymysql_utils import MySQLDB
 
@@ -54,18 +55,67 @@ class DataServer(object):
             if len(info) == 0:
                 # Empty line in CSV file:
                 continue
-            bus_msg = BusMessage(content=self.make_json(info),
-                                 topicName=self.topic)
-            self.bus.publish(bus_msg)
+            #**************
+            if info[6] != 'i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3':
+                tmp = info
+                continue
+            #**************
+            try:
+                bus_msg = BusMessage(content=self.make_json(info),
+                                     topicName=self.topic)
+                self.bus.publish(bus_msg)
+            except:
+                print("Could not convert to JSON: %s" % str(info));
+                continue;
             row_count += 1
             time.sleep(DataServer.inter_msg_delay)
+        #**************
+        bus_msg = BusMessage(content=self.make_json(tmp),
+                                     topicName=self.topic)
+        self.bus.publish(bus_msg)
+        #**************
         print("Published %s data rows." % row_count)
     
     def make_json(self, content_line_arr):
+        '''
+        given an array [10,20,30], uses method
+        invent_colnames() to return a JSON string
+        '{"col1" : 10, "col2" : 20, "col3" : 30}'
+        The invent_colnames() method either uses either
+        a previously defined array of col names, or 
+        invents names. 
+        
+        :param content_line_arr: array of values out of a CSV file or 
+            query result.
+        :type content_line_arr: [<anyOtherThanObject>]
+        :result: a legal JSON string.
+        :rtype str
+        :raise: TypeError when JSON parsing fails. 
+        '''
         self.colnames = self.invent_colnames(self.colnames, content_line_arr)
-        return dict(itertools.izip_longest(self.colnames, content_line_arr, fillvalue='null'))
+        # Make dict by combining the colname and data values
+        # like a zipper. If fewer data values than columns,
+        # fill with 'null' string:
+        dataDict = dict(itertools.izip_longest(self.colnames, content_line_arr, fillvalue='null'))
+        return json.dumps(dataDict)
 
     def invent_colnames(self, existing_colnames, data_arr):
+        '''
+        Given a possibly empty array of column names,
+        return a new array of column names that is at
+        least as long as the number of elements in 
+        data_arr. If the given col name array is longer
+        than data_arr, it is returned unchanged. If
+        col names are missing, the returned array is
+        padded with 'col-n' where n is an int.
+        
+        :param existing_colnames: possibly empty array of known column names in order.
+        :type existing_colnames: [str]
+        :param data_arr: array of any data
+        :type data_arr: [<any>]
+        :return: array of column names strings
+        :rtype: [str]
+        '''
         if len(existing_colnames) >= len(data_arr):
             return existing_colnames
         for i in range(len(existing_colnames), len(data_arr)):

@@ -1,10 +1,46 @@
 // TODO:
 //   o If num_attempts missing, assume 1.
 
-//console.log(vizzer);
+
+var vizzer = gradeCharter.getInstance();
+
 var gradeReceiver = function(gradeData) {
-	console.log(gradeData);
-	vizzer.updateViz([gradeData]);
+	//console.log(gradeData);
+	
+	// Sanity check: are we handed an array?
+	if (Object.prototype.toString.call( gradeData ) !== '[object Array]') {
+		gradeData = [gradeData]
+	}
+	
+	// Sanity check: does the array contain either 
+	// legal JSON strings, or JS objects? Turn all
+	// JSON strings into objects. Along the way,
+	// build a new array of just the content objects:
+
+	var cleanGradeDataArr = [];
+	for (var i=0; i<gradeData.length; i++) {
+		var gradeInfoObj = gradeData[i];
+		if (typeof gradeInfoObj !== "object") {
+			console.log(`Error: viz data must be an array of grade objects, not: ${gradeInfoObj}.`);
+			return;
+		}
+		// Got a proper object, get its 'content' field:
+		var gradeInfoStr = gradeInfoObj['content'];
+		if (typeof gradeInfoStr !== 'string') {
+			console.log(`Error: viz data content field must be parseable JSON string not: ${gradeInfoStr}.`);
+			return;
+		}
+		// Must be a *proper* JSON:
+		try{
+			cleanGradeDataArr.push(JSON.parse(gradeInfoStr));
+			continue;
+		} catch(err) {
+			console.log(`Error: bad JSON in grade object content field: '${gradeInfoStr}'.`);
+			return;
+		}
+	} // end for
+	
+	vizzer.updateViz(cleanGradeDataArr);
 }
 
 var bus;
