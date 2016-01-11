@@ -134,6 +134,7 @@ function gradeCharter() {
 		
 		my.svg = d3.select("body").append("svg")
 			  		 .attr("class", "gradechart")
+			  		 .attr("id", "gradechart")
 			  		 .attr("width", my.outerWidth)
 			  		 .attr("height", my.outerHeight)
 					 .append("g")
@@ -187,13 +188,46 @@ function gradeCharter() {
 			return;
 		}
 		// Update the internal record of the data:
-		my.updateDataRepAndScales(gradeObjs);
+		var newProbGradeObjs = my.updateDataRepAndScales(gradeObjs);
 		my.rescaleAxes();
 		
 		// Update height of existing bars, and add
 		// new ones as needed:
 		
-		var gradeBars = my.svg.selectAll("rect")
+		// ENTER new rectangles just for the never-seen problems:
+		var gradeBars = my.svg.selectAll("gradebar")
+		    	 .data(my.probIdArr) // array of problem IDs
+		    	 .enter()
+		    	 .append("rect")
+		    	 //*****.style("opacity", 1)
+		    	 .attr("class", "gradebar")
+		    	 .attr("id", function(d) {
+		    		 return d;
+		    	 })
+		
+		// UPDATE existing rects:
+		    	//*****.style("opacity", 0)
+				.attr("x", function(probId) {
+					// Name this rectangle object by the probId
+					// it represents:
+					return my.xScale(probId);
+				})
+				.attr("y", function(probId) {
+					// How many attempts did his problem id take in 
+					// total across all learner?
+					var numTakers =  my.probNumTakes[probId]
+					return my.yScale(numTakers);
+				 })
+				.attr("width", my.xScale.rangeBand())
+				.attr("height", function(probId) {
+					var numTakers = my.probNumTakes[probId];
+					return my.chartHeight - my.yScale(numTakers);
+				 })
+				 .call(my.xAxis)
+				//****.transition().duration(my.transitionDuration)
+				//****.style("opacity", 1);
+				 
+/*		var gradeBars = my.svg.selectAll("rect")
 		    	.data(gradeObjs, function(d) {
 		    	 		// Return the tuple's problemId as
 		    			// unique identifier:
@@ -219,41 +253,84 @@ function gradeCharter() {
 		    	.attr("height", function(d) {
 		    		return my.chartHeight - my.yScale(my.probNumTakes[d["probId"]]);
 		    	 })
-		    	 
-		// Done updating existing grade bars.
-		// Now add bars for any new problems that
-		// were delivered.
-		gradeBars.enter()
-		    	// Add elements for the new data: 
-		    	.append("rect")
-		    	.style("opacity", 0)
-				.attr("x", function(d) {
-					var probId = d["probId"];
-					// Name this rectangle object by the probId
-					// it represents:
-					this.setAttribute("id", probId);
-					this.setAttribute("class", "gradebar");
-					return my.xScale(probId);
-				})
-				.attr("y", function(d) {
-					// Another learner to incorporate into the chart.
-					// How many attempts did his problem id take in 
-					// total across all learner?
-					var numTakers =  my.probNumTakes[d["probId"]];
-					return my.yScale(numTakers);
-				 })
-				.attr("width", my.xScale.rangeBand())
-				.attr("height", function(d) {
-					var probId = d["probId"];
-					var numTakers = my.probNumTakes[probId];
-					return my.chartHeight - my.yScale(numTakers);
-				 })
-				.transition().duration(my.transitionDuration)
-				.style("opacity", 1);
-				
-	}
+*/	}
 	
 	/************************** Private Methods ********************/
+	
+	/*-----------------------
+	 * updateDataRepAndScales
+	 *-------------*/
+
+	my.updateDataRepAndScales = function(gradeObjs) {
+		/**
+		 * Given incoming array of grade objects, go through
+		 * each object and update our records of how many
+		 * attempts each problem received so far. We also
+		 * update the maximum number of attempts that any problem
+		 * received, and the array of all problem ids.
+		 * 
+		 * Finally, we update the x and y scales to accommodate
+		 * (possibly) new problem bars and y-axis heights.
+		 * 
+		 * Returns a new array that only contains gradeObjs
+		 * for problems we have not seen before.
+		 * 
+		 * Relies on caller to ensure that gradeObjs is an
+		 * array of objects.
+		 * 
+		 * :param gradeObjs: is a an array of all information 
+		 *         associated with a grade, such as learner ID,
+		 *         course, number of attempts, grade, etc. Though
+		 *         currently only "probId" and "attempts" are
+		 *         used.
+		 * :type gradeObjs: [{}]
+		 * :return: array of gradeObj for problems for which we haven't had
+		 *      information delivered.
+		 * :rType: [{}]
+		 */
+		
+		var newProblemObjs = [];
+		for (var i=0, len=gradeObjs.length; i<len; i++) {
+			var gradeObj = gradeObjs[i];
+			var probId = gradeObj["probId"];
+			var numAttempts = parseInt(gradeObj["attempts"]);
+			if (isNaN(numAttempts)) {
+				continue;
+			}
+			if (typeof my.probNumTakes[probId] === 'undefined') {
+				// Got a problem ID we've never seen;
+				// remember that this new problem had
+				// nobody take it yet:
+				my.probNumTakes[probId] = numAttempts;
+				my.probIdArr.push(probId);
+				// Remember the info about this new problem:
+				newProblemObjs.push(gradeObj);
+				var haveNewProbId = true;
+			} else {
+				my.probNumTakes[probId] += numAttempts;
+			}
+			if (my.probNumTakes[probId] > my.maxNumTakers) {
+				my.maxNumTakers = my.probNumTakes[probId];
+			}
+		}
+
+		if (haveNewProbId) {
+			my.xScale.domain(my.probIdArr);
+			// Update the my.xAxis labels: this
+			// function will be called with
+			// d being one problem ID. The func
+			// must return a corresponding x Axis label.
+			// We just label with the problem's sequence
+			// number. The '+1' is to make the counting
+			// 1-based: first problem is 1:
+			my.xAxis.tickFormat(function(d) {
+						return my.probIdArr.indexOf(d) + 1;
+						})
+		}
+
+		my.yScale.domain([0, my.maxNumTakers]);
+		return newProblemObjs;
+	}
 	
 	/*-----------------------
 	 * rescaleAxes
@@ -394,68 +471,6 @@ function gradeCharter() {
 		
 	}
 	
-	/*-----------------------
-	 * updateDataRepAndScales
-	 *-------------*/
-
-	my.updateDataRepAndScales = function(gradeObjs) {
-		/**
-		 * Given incoming array of grade objects, go through
-		 * each object and update our records of how many
-		 * attempts each problem received so far. We also
-		 * update the maximum number of attempts that any problem
-		 * received, and the array of all problem ids.
-		 * 
-		 * Finally, we update the x and y scales to accommodate
-		 * (possibly) new problem bars and y-axis heights.
-		 * 
-		 * Relies on caller to ensure that gradeObjs is an
-		 * array of objects.
-		 * 
-		 * :param gradeObjs: is a an array of all information 
-		 *         associated with a grade, such as learner ID,
-		 *         course, number of attempts, grade, etc.
-		 * :type gradeObjs: [{}]
-		 */
-		
-		for (var i=0, len=gradeObjs.length; i<len; i++) {
-			var gradeObj = gradeObjs[i];
-			var probId = gradeObj["probId"];
-			var numAttempts = parseInt(gradeObj["attempts"]);
-			if (isNaN(numAttempts)) {
-				continue;
-			}
-			if (typeof my.probNumTakes[probId] === 'undefined') {
-				// Got a problem ID we've never seen;
-				// remember that this new problem had
-				// nobody take it yet:
-				my.probNumTakes[probId] = numAttempts;
-				my.probIdArr.push(probId);
-				var haveNewProbId = true;
-			} else {
-				my.probNumTakes[probId] += numAttempts;
-			}
-			if (my.probNumTakes[probId] > my.maxNumTakers) {
-				my.maxNumTakers = my.probNumTakes[probId];
-			}
-		}
-
-		if (haveNewProbId) {
-			my.xScale.domain(my.probIdArr);
-			// Update the my.xAxis labels: this
-			// function will be called with
-			// d being one problem ID. The func
-			// must return a corresponding x Axis label.
-			// We just label with the problem's sequence
-			// number. The '+1' is to make the counting
-			// 1-based: first problem is 1:
-			my.xAxis.tickFormat(function(d) {
-						return my.probIdArr.indexOf(d) + 1;
-						})
-		}
-
-		my.yScale.domain([0, my.maxNumTakers]);
-	}
 
 	/*-----------------------
 	 * isArray
@@ -468,6 +483,8 @@ function gradeCharter() {
 		 */
 		return Object.prototype.toString.call( maybeArr ) === '[object Array]';
 	}
+	
+	/************************** Top-Level Statements ********************/
 	
 	// Make the object we'll actually return:
 	var that = {}
