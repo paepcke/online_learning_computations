@@ -36,7 +36,7 @@ class DataServer(object):
     mysql_default_pwd  = ''
     mysql_default_db   = 'mysql'
     
-    inter_msg_delay    = 2 # second
+    inter_batch_delay    = 2 # second
 
     def __init__(self, topic, redis_server='localhost',):
         super(DataServer,self).__init__()
@@ -48,11 +48,9 @@ class DataServer(object):
         self.colnames = []
         self.topic = topic
         
-    def send_all(self, batch_size=1):
+    def send_all(self, batch_size=1, inter_batch_delay=inter_batch_delay):
         row_count = 0
-        #******
-        tmp = []
-        #******
+        tuple_dict_batch = []
         print('Starting to publish data to %s...' % self.topic)
         for info in self.it:
             if len(info) == 0:
@@ -62,26 +60,16 @@ class DataServer(object):
             #if info[6] != 'i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3':
             #    tmp = info
             #    continue
-            tmp.append(info)
-            continue
             #**************
-            try:
-                bus_msg = BusMessage(content=self.make_json(info),
+            tuple_dict_batch.append(self.make_data_dict(info))
+            if len(tuple_dict_batch) >= batch_size:
+                bus_msg = BusMessage(content=json.dumps(tuple_dict_batch),
                                      topicName=self.topic)
                 self.bus.publish(bus_msg)
-            except:
-                print("Could not convert to JSON: %s" % str(info));
-                continue;
-            row_count += 1
-            time.sleep(DataServer.inter_msg_delay)
-        #**************
-        dict_arr = []
-        for one_tuple in tmp:
-            dict_arr.append(self.make_data_dict(one_tuple))
-        bus_msg = BusMessage(content=json.dumps(dict_arr),
-                                     topicName=self.topic)
-        self.bus.publish(bus_msg)
-        #**************
+                row_count += 1
+                tuple_dict_batch = []
+                time.sleep(DataServer.inter_batch_delay)
+                continue
         print("Published %s data rows." % row_count)
     
     def make_data_dict(self, content_line_arr):

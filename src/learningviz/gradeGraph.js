@@ -202,7 +202,7 @@ function gradeCharter() {
 		// new ones as needed:
 		
 		// ENTER new rectangles just for the never-seen problems:
-		var gradeBars = my.svg.selectAll("gradebar")
+		var gradeBars = my.svg.selectAll(".gradebar")
 		    	 .data(newProbIds) // array of problem IDs
 		    	 
 		gradeBars.enter()
@@ -227,7 +227,7 @@ function gradeCharter() {
 						return my.yScale(numTakers);
 					 	})
 				  //*****.attr("width", my.xScale.rangeBand())
-				  .attr("width", my.xScale.rangeBand() / 2.0)
+				  .attr("width", 5)
 				  .attr("height", function(probId) {
 						var numTakers = my.probNumTakes[probId];
 						return my.chartHeight - my.yScale(numTakers);
