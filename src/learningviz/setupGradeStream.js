@@ -73,7 +73,23 @@ var kickoff = function() {
 	//bus.subscribedTo(function(subscriptions) { console.log (subscriptions)});
 	//*****
 	
-}									  
+}
+
+//**********
+var subscribe = function() {
+	
+	var promise = busInteractor.getInstance();
+	promise.then(function(instance) {
+		bus = instance;
+		bus.subscribeToTopic('gradesCompilers');
+	    },
+		function(err_msg) {
+			alert(err_msg);
+		}
+	)};
+
+	
+//**********
 									  
 
 

@@ -27,7 +27,9 @@ class DataServer(object):
     NOTE: send speed faster if column names are
           provided, either in a CSV file's first
           line (for CSVDataServer), or explicitly
-          as a string array (for MySQLDataServer). 
+          as a string array (for MySQLDataServer).
+          
+    For testing, can use online_learning_computations/src/learningviz/testfile.csv 
     '''
 
     mysql_default_port = 3306
@@ -48,29 +50,34 @@ class DataServer(object):
         self.colnames = []
         self.topic = topic
         
-    def send_all(self, batch_size=1, inter_batch_delay=inter_batch_delay):
+    def send_all(self, batch_size=1, max_to_send=-1, inter_batch_delay=inter_batch_delay):
         row_count = 0
         tuple_dict_batch = []
         print('Starting to publish data to %s...' % self.topic)
-        for info in self.it:
-            if len(info) == 0:
-                # Empty line in CSV file:
-                continue
-            #**************
-            #if info[6] != 'i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3':
-            #    tmp = info
-            #    continue
-            #**************
-            tuple_dict_batch.append(self.make_data_dict(info))
-            if len(tuple_dict_batch) >= batch_size:
-                bus_msg = BusMessage(content=json.dumps(tuple_dict_batch),
-                                     topicName=self.topic)
-                self.bus.publish(bus_msg)
-                row_count += 1
-                tuple_dict_batch = []
-                time.sleep(DataServer.inter_batch_delay)
-                continue
-        print("Published %s data rows." % row_count)
+        try:
+            for info in self.it:
+                if len(info) == 0:
+                    # Empty line in CSV file:
+                    continue
+                #**************
+                #if info[6] != 'i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3':
+                #    tmp = info
+                #    continue
+                #**************
+                if max_to_send > -1 and row_count >= max_to_send:
+                    return                
+                tuple_dict_batch.append(self.make_data_dict(info))
+                if len(tuple_dict_batch) >= batch_size or\
+                    len(tuple_dict_batch) + row_count >= max_to_send:
+                    bus_msg = BusMessage(content=json.dumps(tuple_dict_batch),
+                                         topicName=self.topic)
+                    self.bus.publish(bus_msg)
+                    row_count += 1
+                    tuple_dict_batch = []
+                    time.sleep(DataServer.inter_batch_delay)
+                    continue
+        finally:
+            print("Published %s data rows." % row_count)
     
     def make_data_dict(self, content_line_arr):
         '''
@@ -128,7 +135,8 @@ class MySQLDataServer(DataServer):
                  pwd=DataServer.mysql_default_pwd, 
                  db=DataServer.mysql_default_db, 
                  redis_server='localhost',
-                 colname_arr=[]):
+                 colname_arr=[],
+                 max_to_send=-1):
         '''
         Constructor
         '''
@@ -141,7 +149,7 @@ class MySQLDataServer(DataServer):
         # Column name array to superclass instance:
         self.colnames = colname_arr
         self.it = self.db.query(query)
-        self.send_all()
+        self.send_all(max_to_send=max_to_send)
         
 class CSVDataServer(DataServer):
     
@@ -150,7 +158,8 @@ class CSVDataServer(DataServer):
                  topic,
                  first_line_has_colnames=False,
                  redis_server='localhost',
-                 colnames=[] ):
+                 colnames=[],
+                 max_to_send=-1):
         # Super throws 'TypeError: must be type, not str'
         # So need to use explicit superclass call...odd. 
         #super('CSVDataServer', self).__init__(topic)
@@ -171,12 +180,12 @@ class CSVDataServer(DataServer):
             self.colnames = csvreader.next()
         # ... else superclass will invent col names.
         self.it = csvreader
-        self.send_all()
+        self.send_all(max_to_send=max_to_send)
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]), 
                                      formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('-s', '--server',
+    parser.add_argument('-s', '--host',
                         dest='host', 
                         help="For mysql src: fully qualified db host name.",
                         default=DataServer.mysql_default_host)
@@ -216,6 +225,16 @@ if __name__ == '__main__':
                         default='false', 
                         help="For csv src: true/false whether 1st line contains col names.",
                         )
+    parser.add_argument('-m', '--maxmsgs',
+                        dest='max_to_send',
+                        type=int,
+                        help="Maximum number of messages to send. Default: all (a.k.a. -1)",
+                        default='-1')
+    parser.add_argument('-e', '--period',
+                        dest='period',
+                        type=float,
+                        help="Fractional seconds to wait between data batches. Default: %s" % DataServer.inter_batch_delay,
+                        default=DataServer.inter_batch_delay)
     parser.add_argument('fileOrQuery',
                         help="For mysql src: query to run; for csv: file name.",
                        )
@@ -239,6 +258,10 @@ if __name__ == '__main__':
     colnames = args.colnames
     
     redis_server = args.redis_server
+    
+    max_to_send = args.max_to_send
+    
+    DataServer.inter_batch_delay = args.period
     
     # If serving a database query: Get all the security done:
     if src_type == 'db':
@@ -289,7 +312,8 @@ if __name__ == '__main__':
                                args.topic,
                                first_line_has_colnames=colsIn1stLine,
                                redis_server=redis_server,
-                               colnames=colnames)
+                               colnames=colnames,
+                               max_to_send=max_to_send)
     else:
         server = MySQLDataServer(query,
                                  args.topic, 
@@ -299,4 +323,5 @@ if __name__ == '__main__':
                                  pwd=pwd,
                                  db=db,
                                  redis_server=redis_server,
-                                 colname_arr=colnames)
+                                 colname_arr=colnames,
+                                 max_to_send=max_to_send)

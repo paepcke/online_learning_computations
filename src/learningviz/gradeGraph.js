@@ -92,9 +92,9 @@ function gradeCharter() {
 	//****my.outerWidth = 960,
 	my.outerWidth = 500,
 	my.outerHeight = 500,
-	my.margin = {top: 20, right: 20, bottom: 20, left: 20},
+	my.margin = {top: 10, right: 10, bottom: 10, left: 10},
 	//****my.margin = {top: 0, right: 0, bottom: 0, left: 0},
-	my.padding = {top: 60, right: 60, bottom: 60, left: 60},
+	my.padding = {top: 10, right: 10, bottom: 10, left: 10},
 	//****my.padding = {top: 10, right: 10, bottom: 10, left: 10},
 	my.xLabelsHeight = 35,
 	my.yLabelsWidth  = 20,
@@ -196,44 +196,49 @@ function gradeCharter() {
 		}
 		
 		//******		
-		my.rescaleAxes();
-		
+
 		// Update height of existing bars, and add
 		// new ones as needed:
 		
-		// ENTER new rectangles just for the never-seen problems:
+		// Data is array of problem ids for *all*
+		// problems seen so far, in time order:
 		var gradeBars = my.svg.selectAll(".gradebar")
-		    	 .data(newProbIds) // array of problem IDs
-		    	 
+		    	 .data(my.probIdArr);
+
+		// UPDATE existing rects: nothing special to do
+		//        for them.
+
+		// ENTER new rectangles for the never-seen problems:
 		gradeBars.enter()
 		    	 .append("rect")
-		    	 //*****.style("opacity", 1)
 		    	 .attr("class", "gradebar")
-		    	 .attr("id", function(d) {
-		    		 return d;
-		    	 })
-		
-		// UPDATE existing rects:
-		    	//*****.style("opacity", 0)
-		gradeBars.attr("x", function(probId) {
-				 		// Name this rectangle object by the probId
-						// it represents:
+		    	 .attr("id", function(probId) {
+		    		 return probId;
+		    	 });
+		    	 
+	    // Both new and old rects: update sizes
+		// and locations on X-axis:
+				    	// Place this rectangle object by the probId
+				    	// it represents:
+		 gradeBars.attr("x", function(probId) {
 						return my.xScale(probId);
 						})
 				  .attr("y", function(probId) {
 						// How many attempts did his problem id take in 
 						// total across all learner?
-						var numTakers =  my.probNumTakes[probId]
+						var numTakers =  my.probNumTakes[probId];
 						return my.yScale(numTakers);
 					 	})
-				  //*****.attr("width", my.xScale.rangeBand())
-				  .attr("width", 5)
+				  .attr("width", my.xScale.rangeBand())
 				  .attr("height", function(probId) {
 						var numTakers = my.probNumTakes[probId];
 						return my.chartHeight - my.yScale(numTakers);
-					 	});
-				//****.transition().duration(my.transitionDuration)
-				//****.style("opacity", 1);
+					 	})
+				  .transition().duration(my.transitionDuration)
+				  .style("opacity", 1);
+
+		my.rescaleAxes();
+		
 	}
 	
 	/************************** Private Methods ********************/
