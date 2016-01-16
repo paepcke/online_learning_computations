@@ -16,39 +16,39 @@
  * We expect the following tuple format:
  *  
  *         Schema Column                     Example
- *    course_display_name(string)      Medicine/HRP258/Statistics_in_Medicine
- *    anon_screen_name(string),        55e906bd8d133cef1975080aa2bf8ff142bb1d6a
- *    grade(int),                      2
- *    num_attempts(int),               1
- *    first_submit(datetime),          2013-05-13 12:38:30
- *    last_submit(datetime),           2013-05-13 12:42:37 
- *    module_id(string)                i4x://Medicine/HRP258/problem/e252cc0b13b146c1805a90cf45aa376b
+ *    course(string)          Medicine/HRP258/Statistics_in_Medicine
+ *    learner(string),        55e906bd8d133cef1975080aa2bf8ff142bb1d6a
+ *    percentGrade(float),    30.0
+ *    attempts(int),          1
+ *    firstSubmit(datetime),  2013-05-13 12:38:30
+ *    lastSubmit(datetime),   2013-05-13 12:42:37 
+ *    probId(string)          i4x://Medicine/HRP258/problem/e252cc0b13b146c1805a90cf45aa376b
  * 
  * Underlying query:
  * 
- *     SELECT course_display_name, 
- *            anon_screen_name, 
- *            grade, 
- *            num_attempts, 
- *            first_submit, 
- *            last_submit, 
- *            module_id 
- *     FROM ActivityGrade 
- *     WHERE module_type = "problem" 
- *       AND num_attempts >= 1
- *     ORDER BY first_submit;
- *     
- *  To find the number of assignments ahead of time:
- *  
- *     SELECT COUNT(DISTINCT module_id) 
- *       FROM ActivityGrade 
- *      WHERE course_display_name = "Medicine/HRP258/Statistics_in_Medicine";
+ * 
+ *     (SELECT 'course','learner','grade','attempts','firstSubmit','lastSubmit','probId')
+ *     UNION
+ *     (SELECT course_display_name AS course,
+ *     	    anon_screen_name AS learner,
+ *    	    percent_grade AS percentGrade,
+ *    	    num_attempts AS attempts,
+ *    	    first_submit AS firstSubmit,
+ *    	    last_submit AS lastSubmit,
+ *    	    module_id AS probId
+ *      INTO OUTFILE '/tmp/cs145Grades.csv'
+ *      FIELDS TERMINATED BY "," OPTIONALLY ENCLOSED BY '"' LINES TERMINATED BY '\n'
+ *      FROM ActivityGrade
+ *      WHERE course_display_name = 'Engineering/db/2014_1'
+ *        AND num_attempts > -1)
+ *      ORDER BY firstSubmit;
+ * 
  */
 
 var testTuples = [
 				   {"course" : "Medicine/HRP258/Statistics_in_Medicine",
 				    "learner" : "3e43611e9969f85c5354894e66822434a7ee61d8",
-				    "grade" : 5,
+				    "percentGrade" : 30.0,
 				    "attempts" : 2,
 				    "firstSubmit" : "2013-06-11 15:15:08",
 				    "lastSubmit" : "2013-07-16 06:43:23",
@@ -56,7 +56,7 @@ var testTuples = [
 				   },
 /*				   {"course" : "Medicine/HRP258/Statistics_in_Medicine",
 				    "learner" : "6a6c70f0f9672ca4a3e16bdb5407af51cd18e4e5",
-				    "grade" : 10,
+				    "percentTrade" : 10.0,
 				    "attempts" : 1,
 				    "firstSubmit" : "2013-06-11 15:12:13",
 				    "lastSubmit" : "2013-07-07 00:10:51",
@@ -64,7 +64,7 @@ var testTuples = [
 				   },
 				   {"course" : "Medicine/HRP258/Statistics_in_Medicine",
 				    "learner" : "cb2bb63c14e6f5fc8d21b5f43c8fe412c7c64c39",
-				    "grade" : 7,
+				    "percentGrade" : 100.0,
 				    "attempts" : 1,
 				    "firstSubmit" : "2013-06-11 15:21:11",
 				    "lastSubmit" : "2013-07-1506:13:51",
@@ -120,9 +120,19 @@ function gradeCharter() {
 	my.xAxis;
 	my.yAxis;
 	
-	my.probNumTakes = {};
+	// Dict probId-->stats about that problem:
+	//     probStats[probId] -> {'numAttempts' : <m>,
+    //                           'num1stSuccesses : <n>			
+	//							 'successRate' : <o>,
+	//                          }
+	my.probStats = {};
+	// Problem IDs, time ordered (if data was delivered time-sorted!):
 	my.probIdArr = [];
-	my.maxNumTakers  = 0;	
+	// Number of times the most frequently taken problem was taken:
+	my.maxNumTakers  = 0;
+	// Map probId-->number of learners who got the problem on the first try:
+	my.probNum1stSuccess = {};
+	
 		
 	/************************** Initialization ********************/
 	
@@ -189,13 +199,6 @@ function gradeCharter() {
 		}
 		// Update the internal record of the data:
 		var newProbGradeObjs = my.updateDataRepAndScales(gradeObjs);
-		//******
-		var newProbIds = [];
-		for (var i=0; i< newProbGradeObjs.length; i++) {
-			newProbIds.push(newProbGradeObjs[i]['probId']);
-		}
-		
-		//******		
 
 		// Update height of existing bars, and add
 		// new ones as needed:
@@ -226,12 +229,12 @@ function gradeCharter() {
 				  .attr("y", function(probId) {
 						// How many attempts did his problem id take in 
 						// total across all learner?
-						var numTakers =  my.probNumTakes[probId];
+						var numTakers =  my.probStats[probId];
 						return my.yScale(numTakers);
 					 	})
 				  .attr("width", my.xScale.rangeBand())
 				  .attr("height", function(probId) {
-						var numTakers = my.probNumTakes[probId];
+						var numTakers = my.probStats[probId];
 						return my.chartHeight - my.yScale(numTakers);
 					 	})
 				  .transition().duration(my.transitionDuration)
@@ -283,20 +286,32 @@ function gradeCharter() {
 			if (isNaN(numAttempts)) {
 				continue;
 			}
-			if (typeof my.probNumTakes[probId] === 'undefined') {
+			if (typeof my.probStats[probId] === 'undefined') {
 				// Got a problem ID we've never seen;
 				// remember that this new problem had
 				// nobody take it yet:
-				my.probNumTakes[probId] = numAttempts;
+				my.probStats[probId] = numAttempts;
 				my.probIdArr.push(probId);
+				// How often this problem was successfully taken
+				// with one tey:
+				my.probNum1stSuccess[probId] = 0;
 				// Remember the info about this new problem:
 				newProblemObjs.push(gradeObj);
 				var haveNewProbId = true;
 			} else {
-				my.probNumTakes[probId] += numAttempts;
+				my.probStats[probId] += numAttempts;
 			}
-			if (my.probNumTakes[probId] > my.maxNumTakers) {
-				my.maxNumTakers = my.probNumTakes[probId];
+			
+			// Update largest number of takers among all problems
+			// (i.e. the highest Y-value:
+			if (my.probStats[probId] > my.maxNumTakers) {
+				my.maxNumTakers = my.probStats[probId];
+			}
+			
+			// For this problem: update the number of
+			// learners who got the problem on the first try:
+			if (numAttempts == 1) {
+				my.probNum1stSuccess[probId] += 1;
 			}
 		}
 
