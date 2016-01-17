@@ -234,12 +234,12 @@ function gradeCharter() {
 				  .attr("y", function(probId) {
 						// How many attempts did his problem id take in 
 						// total across all learner?
-						var numTakers =  my.probStats[probId];
+						var numTakers =  my.probStats[probId].numAttempts;
 						return my.yScale(numTakers);
 					 	})
 				  .attr("width", my.xScale.rangeBand())
 				  .attr("height", function(probId) {
-						var numTakers = my.probStats[probId];
+						var numTakers = my.probStats[probId].numAttempts;
 						return my.chartHeight - my.yScale(numTakers);
 					 	})
 				  .transition().duration(my.transitionDuration)
@@ -305,8 +305,10 @@ function gradeCharter() {
 				// Got a problem ID we've never seen;
 				// remember that this new problem had
 				// nobody take it yet:
+				my.probStats[probId] = {}
 				my.probStats[probId].numAttempts = newNumAttempts;
-				my.probNum1stSuccess[probId].num1stSuccesses = 0;
+				my.probStats[probId].num1stSuccesses = 0;
+				my.probStats[probId].successRate = 0;
 				my.probIdArr.push(probId);
 				// How often this problem was successfully taken
 				// with one tey:
@@ -327,12 +329,12 @@ function gradeCharter() {
 			// For this problem: update the number of
 			// learners who got the problem on the first try.
 			// This also means updating the overall 1st-try-success
-			// average across all problem:
+			// average across all problems:
 			if (newNumAttempts == 1 && percentGrade == 100.0) {
 				var curSuccessRate = my.probStats[probId].successRate;
-				var successes = my.probStats[probId].probNum1stSuccess += 1;
+				var successes = my.probStats[probId].num1stSuccesses += 1;
 				var newSuccessRate = my.probStats[probId].successRate = 
-					successes/my.probStats[probId].attempts;
+					successes/my.probStats[probId].numAttempts;
 				// OK for the rate diff to be negative:
 				var rateDiff = newSuccessRate - curSuccessRate;
 				var numProbs = my.probIdArr.length;
