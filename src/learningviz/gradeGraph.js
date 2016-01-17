@@ -130,8 +130,13 @@ function gradeCharter() {
 	my.probIdArr = [];
 	// Number of times the most frequently taken problem was taken:
 	my.maxNumTakers  = 0;
-	// Map probId-->number of learners who got the problem on the first try:
-	my.probNum1stSuccess = {};
+	// Average rate of first success across
+	// all problems. Success 'rate' of one 
+	// problem is percentage of all takers
+	// of that problem who succeeded on the
+	// first try.
+	my.mean1stSuccessRate = 0;
+
 	
 		
 	/************************** Initialization ********************/
@@ -254,9 +259,15 @@ function gradeCharter() {
 		/**
 		 * Given incoming array of grade objects, go through
 		 * each object and update our records of how many
-		 * attempts each problem received so far. We also
+		 * attempts that problem received so far, as well
+		 * as its success rate and number of successes on 
+		 * first attempt.
+		 *  
+		 * Globally across all problems we also
 		 * update the maximum number of attempts that any problem
-		 * received, and the array of all problem ids.
+		 * received, the array of all problem ids (if a problem
+		 * hasn't been seen before), and the mean success rate
+		 * across all problems.
 		 * 
 		 * Finally, we update the x and y scales to accommodate
 		 * (possibly) new problem bars and y-axis heights.
@@ -267,14 +278,12 @@ function gradeCharter() {
 		 * Relies on caller to ensure that gradeObjs is an
 		 * array of objects.
 		 * 
-		 * :param gradeObjs: is a an array of all information 
-		 *         associated with a grade, such as learner ID,
-		 *         course, number of attempts, grade, etc. Though
-		 *         currently only "probId" and "attempts" are
-		 *         used.
+		 * :param gradeObjs: is a an array of objs that contain all 
+		 *         information associated with a grade, such as learner ID,
+		 *         course, number of attempts, grade, etc.:
 		 * :type gradeObjs: [{}]
 		 * :return: array of gradeObj for problems for which we haven't had
-		 *      information delivered.
+		 *      information delivered before.
 		 * :rType: [{}]
 		 */
 		
@@ -282,36 +291,54 @@ function gradeCharter() {
 		for (var i=0, len=gradeObjs.length; i<len; i++) {
 			var gradeObj = gradeObjs[i];
 			var probId = gradeObj["probId"];
-			var numAttempts = parseInt(gradeObj["attempts"]);
-			if (isNaN(numAttempts)) {
+			var newNumAttempts = parseInt(gradeObj["attempts"]);
+			var percentGrade = parseFloat(gradeObj["percentGrade"]);
+			
+			// Tmp to remember old number of a prob's
+			// attempts after updating that number:
+			var prevNumAttempts = 0;
+			
+			if (isNaN(newNumAttempts) || isNaN(percentGrade)) {
 				continue;
 			}
 			if (typeof my.probStats[probId] === 'undefined') {
 				// Got a problem ID we've never seen;
 				// remember that this new problem had
 				// nobody take it yet:
-				my.probStats[probId] = numAttempts;
+				my.probStats[probId].numAttempts = newNumAttempts;
+				my.probNum1stSuccess[probId].num1stSuccesses = 0;
 				my.probIdArr.push(probId);
 				// How often this problem was successfully taken
 				// with one tey:
-				my.probNum1stSuccess[probId] = 0;
 				// Remember the info about this new problem:
 				newProblemObjs.push(gradeObj);
 				var haveNewProbId = true;
 			} else {
-				my.probStats[probId] += numAttempts;
+				prevNumAttempts = my.probStats[probId].numAttempts;
+				my.probStats[probId].numAttempts += newNumAttempts;
 			}
 			
 			// Update largest number of takers among all problems
 			// (i.e. the highest Y-value:
-			if (my.probStats[probId] > my.maxNumTakers) {
-				my.maxNumTakers = my.probStats[probId];
+			if (my.probStats[probId].numAttempts > my.maxNumTakers) {
+				my.maxNumTakers = my.probStats[probId].numAttempts;
 			}
-			
+
 			// For this problem: update the number of
-			// learners who got the problem on the first try:
-			if (numAttempts == 1) {
-				my.probNum1stSuccess[probId] += 1;
+			// learners who got the problem on the first try.
+			// This also means updating the overall 1st-try-success
+			// average across all problem:
+			if (newNumAttempts == 1 && percentGrade == 100.0) {
+				var curSuccessRate = my.probStats[probId].successRate;
+				var successes = my.probStats[probId].probNum1stSuccess += 1;
+				var newSuccessRate = my.probStats[probId].successRate = 
+					successes/my.probStats[probId].attempts;
+				// OK for the rate diff to be negative:
+				var rateDiff = newSuccessRate - curSuccessRate;
+				var numProbs = my.probIdArr.length;
+				// Incrementally update the mean of success rates
+				// across all problems:
+				my.mean1stSuccessRate = my.mean1stSuccessRate + rateDiff/numProbs;
 			}
 		}
 
