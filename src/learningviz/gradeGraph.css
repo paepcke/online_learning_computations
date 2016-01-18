@@ -1,12 +1,20 @@
 .gradechart { border-style : solid;
-	      border-width : 1pt;
-	    }
+		      border-width : 1pt;
+		    }
 .gradebar { fill : teal; }
 .axis path,
 .axis line { fill : none;
-	     stroke : black;
-	     shape-rendering : crispEdges;
-	   }
+	    	 stroke : black;
+	     	 shape-rendering : crispEdges;
+	   		}
 .axis text { font-family : sans-serif;
-	     font-size : 11px;
-	   }
+	     	 font-size : 11px;
+	   	   }
+	   
+.localMeanLine {stroke-width : 3px;
+				stroke : LightCoral;
+			   }
+			   
+.globalMeanLine {stroke-width : 3px;
+				stroke : LightBlue;
+			   }			   

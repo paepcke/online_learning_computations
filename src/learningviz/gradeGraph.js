@@ -210,33 +210,74 @@ function gradeCharter() {
 		
 		// Data is array of problem ids for *all*
 		// problems seen so far, in time order:
-		var gradeBars = my.svg.selectAll(".gradebar")
+		var gradeBarGroups = my.svg.selectAll(".gradebarGroup")
 		    	 .data(my.probIdArr);
 
 		// UPDATE existing rects: nothing special to do
 		//        for them.
 
-		// ENTER new rectangles for the never-seen problems:
-		gradeBars.enter()
-		    	 .append("rect")
-		    	 .attr("class", "gradebar")
-		    	 .attr("id", function(probId) {
-		    		 return probId;
-		    	 });
+		// ENTER new bar groups for the never-seen problems:
+		var enterSelection = gradeBarGroups
+							    .enter()
+							    .append("g")
+							    .attr("class", "gradebarGroup");
+		
+		enterSelection.append("rect")
+		    	    	 .attr("class", "gradebar")
+		    	    	 .attr("id", function(probId) {
+		    	   	 	 	return probId;
+		    	    	 });     
+        enterSelection.append("line")
+		    	    	 .attr("class", "localMeanLine")
+		    	    	 .attr("id", function(probId) {
+		    	    	 	return probId + 'localMeanLine';
+		    	    	 })   
+		enterSelection.append("line")
+		    	    	 .attr("class", "globalMeanLine")
+		    	    	 .attr("id", function(probId) {
+		    	    	 	return probId + 'globalMeanLine';
+		    	    	 });    
 		    	 
 	    // Both new and old rects: update sizes
 		// and locations on X-axis:
 				    	// Place this rectangle object by the probId
 				    	// it represents:
-		 gradeBars.attr("x", function(probId) {
-						return my.xScale(probId);
+		 gradeBarGroups.select(".gradebar")
+		 		  .attr("x", function(probId) {
+		 			  	var x = my.xScale(probId);
+		 			  	// Update the x coords of the local mean line:
+		 			  	d3.select(this.parentNode).select(".localMeanLine")
+		 			  	    .attr("x1", x)
+		 			  	    .attr("x2", x + my.xScale.rangeBand());
+		 			  	// Update the x coords of the global mean line:		 			  	
+		 			  	d3.select(this.parentNode).select(".globalMeanLine")
+		 			  	    .attr("x1", x)
+		 			  	    .attr("x2", x + my.xScale.rangeBand());
+		 			  	return x;
 						})
 				  .attr("y", function(probId) {
 						// How many attempts did his problem id take in 
 						// total across all learner?
-						var numTakers =  my.probStats[probId].numAttempts;
-						return my.yScale(numTakers);
+						var numTakers   = my.probStats[probId].numAttempts;
+						var successRate = my.probStats[probId].successRate;
+						var y = my.yScale(numTakers);
+						var numFirstSucceeders = numTakers * successRate;
+						// Y of local-1st-try succeeders:
+						var yLocalMeanPxs = my.yScale(numFirstSucceeders);
+						// Update the 'local mean of 1st succeeders' line: 
+						d3.select(this.parentNode).select(".localMeanLine")
+							.attr("y1", yLocalMeanPxs)
+							.attr("y2", yLocalMeanPxs)
+
+						// Update the 'global mean of 1st succeeders' line:
+						var yGlobalMeanPxs = my.yScale(my.mean1stSuccessRate);
+						d3.select(this.parentNode).select(".globalMeanLine")
+							.attr("y1", yGlobalMeanPxs)
+							.attr("y2", yGlobalMeanPxs)
+							
+						return y;
 					 	})
+				  // Selection is still a rect: 
 				  .attr("width", my.xScale.rangeBand())
 				  .attr("height", function(probId) {
 						var numTakers = my.probStats[probId].numAttempts;
@@ -250,6 +291,30 @@ function gradeCharter() {
 	}
 	
 	/************************** Private Methods ********************/
+
+	/*-----------------------
+	 * lineFunction
+	 *-------------*/
+	
+	/**
+	 * Func that takes an array of point coordinates,
+	 * and creates an SVG mini path language expression
+	 * to draw the line segments from point to point. 
+	 * Expected data format:
+	 *    [{"x" : 1, "y" : 10}, {"x" : 2, "y" : 5}]
+	 *    
+	 * Used to append paths to an svg container:
+	 * var lineGraph = svgContainer.append("path")
+     *                    .attr("d", lineFunction(lineData))
+     *                    .attr("stroke", "blue")
+     *                    .attr("stroke-width", 2)
+     *                    .attr("fill", "none");
+	 * 
+	 */
+	my.lineFunction = d3.svg.line()
+					    .x(function(d) {return d.x; })
+					    .y(function(d) {return d.y; })
+					    .interpolate("linear");
 	
 	/*-----------------------
 	 * updateDataRepAndScales
