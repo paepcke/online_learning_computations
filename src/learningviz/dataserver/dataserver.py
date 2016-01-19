@@ -59,11 +59,6 @@ class DataServer(object):
                 if len(info) == 0:
                     # Empty line in CSV file:
                     continue
-                #**************
-                #if info[6] != 'i4x://Medicine/HRP258/problem/8c13502687f642e1b514d4b522fc96d3':
-                #    tmp = info
-                #    continue
-                #**************
                 if max_to_send > -1 and row_count >= max_to_send:
                     return                
                 tuple_dict_batch.append(self.make_data_dict(info))

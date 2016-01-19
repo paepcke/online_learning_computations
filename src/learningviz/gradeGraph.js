@@ -24,24 +24,32 @@
  *    lastSubmit(datetime),   2013-05-13 12:42:37 
  *    probId(string)          i4x://Medicine/HRP258/problem/e252cc0b13b146c1805a90cf45aa376b
  * 
- * Underlying query:
+ * Underlying query (It will have an extra '0' or '1' in
+ * the first column; to avoid that, use only the second
+ * SELECT, ordering just by firstSubmit, and manually adding
+ * the column headers at the top of the resulting csv file.):
+ *    
+ *    SELECT *
+ *    INTO OUTFILE '/tmp/cs145Grades.csv'
+ *    FIELDS TERMINATED BY "," OPTIONALLY ENCLOSED BY '"' LINES TERMINATED BY '\n'
+ *    FROM
+ *     (
+ *        SELECT 0 AS sortKey, 'course','learner','percentGrade','attempts','firstSubmit', 'lastSubmit','probId'
+ *        UNION ALL
+ *        SELECT 1 AS sortKey,
+ *            course_display_name AS course,
+ *            anon_screen_name AS learner,
+ *            percent_grade AS percentGrade,
+ *            num_attempts AS attempts,
+ *            first_submit AS firstSubmit,
+ *            last_submit AS lastSubmit,
+ *            module_id AS probId
+ *        FROM ActivityGrade
+ *        WHERE course_display_name = 'Engineering/db/2014_1'
+ *          AND num_attempts > -1
+ *    ) AS MyData
+ *    ORDER BY sortKey, firstSubmit;
  * 
- * 
- *     (SELECT 'course','learner','grade','attempts','firstSubmit','lastSubmit','probId')
- *     UNION
- *     (SELECT course_display_name AS course,
- *     	    anon_screen_name AS learner,
- *    	    percent_grade AS percentGrade,
- *    	    num_attempts AS attempts,
- *    	    first_submit AS firstSubmit,
- *    	    last_submit AS lastSubmit,
- *    	    module_id AS probId
- *      INTO OUTFILE '/tmp/cs145Grades.csv'
- *      FIELDS TERMINATED BY "," OPTIONALLY ENCLOSED BY '"' LINES TERMINATED BY '\n'
- *      FROM ActivityGrade
- *      WHERE course_display_name = 'Engineering/db/2014_1'
- *        AND num_attempts > -1)
- *      ORDER BY firstSubmit;
  * 
  */
 
@@ -203,7 +211,12 @@ function gradeCharter() {
 			return;
 		}
 		// Update the internal record of the data:
-		var newProbGradeObjs = my.updateDataRepAndScales(gradeObjs);
+		try {
+			var newProbGradeObjs = my.updateDataRepAndScales(gradeObjs);
+		} catch(err) {
+			console.log(err.message);
+			return;
+		}
 
 		// Update height of existing bars, and add
 		// new ones as needed:
@@ -356,16 +369,27 @@ function gradeCharter() {
 		for (var i=0, len=gradeObjs.length; i<len; i++) {
 			var gradeObj = gradeObjs[i];
 			var probId = gradeObj["probId"];
+			if (typeof probId === "undefined") {
+				console.log("New data has no 'probId' field: " + JSON.stringify(gradeObj, null, 4));
+				continue;
+			}
 			var newNumAttempts = parseInt(gradeObj["attempts"]);
+			if (isNaN(parseInt(newNumAttempts)) || 
+				newNumAttempts < 1) {
+				console.log("New data has no, or negative 'attempts' field: " + JSON.stringify(gradeObj, null, 4));
+				continue;
+			}
 			var percentGrade = parseFloat(gradeObj["percentGrade"]);
+			if (isNaN(parseFloat(percentGrade)) || 
+				percentGrade < 0) {
+				console.log("New data has no, or negative 'percentGrade' field: " + JSON.stringify(gradeObj, null, 4));
+				continue;
+			}
 			
 			// Tmp to remember old number of a prob's
 			// attempts after updating that number:
 			var prevNumAttempts = 0;
 			
-			if (isNaN(newNumAttempts) || isNaN(percentGrade)) {
-				continue;
-			}
 			if (typeof my.probStats[probId] === 'undefined') {
 				// Got a problem ID we've never seen;
 				// remember that this new problem had
