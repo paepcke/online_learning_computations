@@ -279,14 +279,14 @@ function gradeCharter() {
 						var yLocalMeanPxs = my.yScale(numFirstSucceeders);
 						// Update the 'local mean of 1st succeeders' line: 
 						d3.select(this.parentNode).select(".localMeanLine")
-							.attr("y1", yLocalMeanPxs)
-							.attr("y2", yLocalMeanPxs)
+							.attr("y1", chartHeight - yLocalMeanPxs)
+							.attr("y2", chartHeight - yLocalMeanPxs)
 
 						// Update the 'global mean of 1st succeeders' line:
-						var yGlobalMeanPxs = my.yScale(my.mean1stSuccessRate);
+						var yGlobalMeanPxs = my.yScale(my.mean1stSuccessRate * numTakers);
 						d3.select(this.parentNode).select(".globalMeanLine")
-							.attr("y1", yGlobalMeanPxs)
-							.attr("y2", yGlobalMeanPxs)
+							.attr("y1", chartHeight - yGlobalMeanPxs)
+							.attr("y2", chartHeight - yGlobalMeanPxs)
 							
 						return y;
 					 	})
