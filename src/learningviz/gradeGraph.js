@@ -138,6 +138,10 @@ function gradeCharter() {
 	my.probIdArr = [];
 	// Number of times the most frequently taken problem was taken:
 	my.maxNumTakers  = 0;
+	
+	// Sum of the success rates of all problems:
+	my.sum1stSuccessRates = 0;
+	
 	// Average rate of first success across
 	// all problems. Success 'rate' of one 
 	// problem is percentage of all takers
@@ -218,6 +222,8 @@ function gradeCharter() {
 			return;
 		}
 
+		my.rescaleAxes();
+		
 		// Update height of existing bars, and add
 		// new ones as needed:
 		
@@ -279,14 +285,18 @@ function gradeCharter() {
 						var yLocalMeanPxs = my.yScale(numFirstSucceeders);
 						// Update the 'local mean of 1st succeeders' line: 
 						d3.select(this.parentNode).select(".localMeanLine")
-							.attr("y1", chartHeight - yLocalMeanPxs)
-							.attr("y2", chartHeight - yLocalMeanPxs)
+							//****.attr("y1", my.chartHeight - yLocalMeanPxs)
+							.y1(my.chartHeight - yLocalMeanPxs)
+							//****.attr("y2", my.chartHeight - yLocalMeanPxs)
+							.y2(my.chartHeight - yLocalMeanPxs);
 
 						// Update the 'global mean of 1st succeeders' line:
 						var yGlobalMeanPxs = my.yScale(my.mean1stSuccessRate * numTakers);
 						d3.select(this.parentNode).select(".globalMeanLine")
-							.attr("y1", chartHeight - yGlobalMeanPxs)
-							.attr("y2", chartHeight - yGlobalMeanPxs)
+							//****.attr("y1", my.chartHeight - yGlobalMeanPxs)
+							.y1(my.chartHeight - yGlobalMeanPxs)
+							//****.attr("y2", my.chartHeight - yGlobalMeanPxs)
+							.y2(my.chartHeight - yGlobalMeanPxs);
 							
 						return y;
 					 	})
@@ -299,8 +309,6 @@ function gradeCharter() {
 				  .transition().duration(my.transitionDuration)
 				  .style("opacity", 1);
 
-		my.rescaleAxes();
-		
 	}
 	
 	/************************** Private Methods ********************/
@@ -424,12 +432,13 @@ function gradeCharter() {
 				var successes = my.probStats[probId].num1stSuccesses += 1;
 				var newSuccessRate = my.probStats[probId].successRate = 
 					successes/my.probStats[probId].numAttempts;
-				// OK for the rate diff to be negative:
-				var rateDiff = newSuccessRate - curSuccessRate;
+				// Update sum of all problems' success rates:
+				my.sum1stSuccessRates = newSuccessRate - curSuccessRate;  
+				
 				var numProbs = my.probIdArr.length;
 				// Incrementally update the mean of success rates
 				// across all problems:
-				my.mean1stSuccessRate = my.mean1stSuccessRate + rateDiff/numProbs;
+				my.mean1stSuccessRate = my.sum1stSuccessRates/numProbs;
 			}
 		}
 
