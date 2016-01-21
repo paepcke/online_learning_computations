@@ -2,6 +2,12 @@
 Created on Dec 31, 2015
 
 @author: paepcke
+
+TODO: 
+  o Accept speed control
+  o Accept pause control
+  o Add total number of objects sent?
+
 '''
 
 import argparse

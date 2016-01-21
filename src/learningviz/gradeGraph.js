@@ -100,10 +100,10 @@ function gradeCharter() {
 	//****my.outerWidth = 960,
 	my.outerWidth = 500,
 	my.outerHeight = 500,
-	my.margin = {top: 10, right: 10, bottom: 10, left: 10},
-	//****my.margin = {top: 0, right: 0, bottom: 0, left: 0},
-	my.padding = {top: 10, right: 10, bottom: 10, left: 10},
+	//****my.margin = {top: 10, right: 10, bottom: 10, left: 10},
+	my.margin = {top: 0, right: 0, bottom: 0, left: 0},
 	//****my.padding = {top: 10, right: 10, bottom: 10, left: 10},
+	my.padding = {top: 10, right: 0, bottom: 0, left: 10},
 	my.xLabelsHeight = 35,
 	my.yLabelsWidth  = 20,
 	my.xAxisTitleHeight = 20,
@@ -139,8 +139,11 @@ function gradeCharter() {
 	// Number of times the most frequently taken problem was taken:
 	my.maxNumTakers  = 0;
 	
+	// Total attempts by all learners on all assignments:
+	my.totalAttempts = 0;
+	
 	// Sum of the success rates of all problems:
-	my.sum1stSuccessRates = 0;
+	my.sum1stSuccesses = 0;
 	
 	// Average rate of first success across
 	// all problems. Success 'rate' of one 
@@ -214,6 +217,7 @@ function gradeCharter() {
 		if (!my.isArray(gradeObjs) || gradeObjs.length === 0) {
 			return;
 		}
+		
 		// Update the internal record of the data:
 		try {
 			var newProbGradeObjs = my.updateDataRepAndScales(gradeObjs);
@@ -263,43 +267,34 @@ function gradeCharter() {
 				    	// it represents:
 		 gradeBarGroups.select(".gradebar")
 		 		  .attr("x", function(probId) {
-		 			  	var x = my.xScale(probId);
-		 			  	// Update the x coords of the local mean line:
-		 			  	d3.select(this.parentNode).select(".localMeanLine")
-		 			  	    .attr("x1", x)
-		 			  	    .attr("x2", x + my.xScale.rangeBand());
-		 			  	// Update the x coords of the global mean line:		 			  	
-		 			  	d3.select(this.parentNode).select(".globalMeanLine")
-		 			  	    .attr("x1", x)
-		 			  	    .attr("x2", x + my.xScale.rangeBand());
-		 			  	return x;
+		 			  	return my.xScale(probId);
 						})
 				  .attr("y", function(probId) {
+						return my.yScale(my.probStats[probId].numAttempts);
+					 	})
+				  .each(function(probId) {
+					  	var rect = this;
 						// How many attempts did his problem id take in 
 						// total across all learner?
 						var numTakers   = my.probStats[probId].numAttempts;
-						var successRate = my.probStats[probId].successRate;
-						var y = my.yScale(numTakers);
-						var numFirstSucceeders = numTakers * successRate;
-						// Y of local-1st-try succeeders:
-						var yLocalMeanPxs = my.yScale(numFirstSucceeders);
-						// Update the 'local mean of 1st succeeders' line: 
-						d3.select(this.parentNode).select(".localMeanLine")
-							//****.attr("y1", my.chartHeight - yLocalMeanPxs)
-							.y1(my.chartHeight - yLocalMeanPxs)
-							//****.attr("y2", my.chartHeight - yLocalMeanPxs)
-							.y2(my.chartHeight - yLocalMeanPxs);
-
-						// Update the 'global mean of 1st succeeders' line:
-						var yGlobalMeanPxs = my.yScale(my.mean1stSuccessRate * numTakers);
-						d3.select(this.parentNode).select(".globalMeanLine")
-							//****.attr("y1", my.chartHeight - yGlobalMeanPxs)
-							.y1(my.chartHeight - yGlobalMeanPxs)
-							//****.attr("y2", my.chartHeight - yGlobalMeanPxs)
-							.y2(my.chartHeight - yGlobalMeanPxs);
-							
-						return y;
-					 	})
+						var num1stSuccesses = my.probStats[probId].num1stSuccesses;
+						// How many 1st-time successes would this problem
+						// have by the global average success rate?
+						var num1stSuccessesByGlobal = numTakers * my.mean1stSuccessRate;
+					  
+		 			  	// Update the x coords of the local mean line:
+		 			  	d3.select(this.parentNode).select(".localMeanLine")
+		 			  		.attr('x1', rect.x.baseVal.value)
+		 			  		.attr('x2', rect.x.baseVal.value + my.xScale.rangeBand())
+							.attr("y1", my.yScale(num1stSuccesses))
+							.attr("y2", my.yScale(num1stSuccesses));
+		 			  	
+		 			  	d3.select(this.parentNode).select(".globalMeanLine")
+		 			  		.attr('x1', rect.x.baseVal.value)
+		 			  		.attr('x2', rect.x.baseVal.value + my.xScale.rangeBand())
+							.attr("y1", my.yScale(num1stSuccessesByGlobal))
+							.attr("y2", my.yScale(num1stSuccessesByGlobal));
+				  })	
 				  // Selection is still a rect: 
 				  .attr("width", my.xScale.rangeBand())
 				  .attr("height", function(probId) {
@@ -374,6 +369,11 @@ function gradeCharter() {
 		 */
 		
 		var newProblemObjs = [];
+		
+		// More attempts at problems; update the total
+		// number of attempts:
+		my.totalAttempts += gradeObjs.length;
+		
 		for (var i=0, len=gradeObjs.length; i<len; i++) {
 			var gradeObj = gradeObjs[i];
 			var probId = gradeObj["probId"];
@@ -433,12 +433,10 @@ function gradeCharter() {
 				var newSuccessRate = my.probStats[probId].successRate = 
 					successes/my.probStats[probId].numAttempts;
 				// Update sum of all problems' success rates:
-				my.sum1stSuccessRates = newSuccessRate - curSuccessRate;  
+				my.sum1stSuccesses += 1;
 				
-				var numProbs = my.probIdArr.length;
-				// Incrementally update the mean of success rates
-				// across all problems:
-				my.mean1stSuccessRate = my.sum1stSuccessRates/numProbs;
+				// Update the rate of 1st-time success across all problems:
+				my.mean1stSuccessRate = my.sum1stSuccesses/my.totalAttempts;
 			}
 		}
 
@@ -451,9 +449,18 @@ function gradeCharter() {
 			// We just label with the problem's sequence
 			// number. The '+1' is to make the counting
 			// 1-based: first problem is 1:
-			my.xAxis.tickFormat(function(d) {
+
+			// Uncomment to get X-axis ticks (1,2,3,...)
+			// But looks ugly when many bars are present:
+/*			my.xAxis.tickFormat(function(d) {
 						return my.probIdArr.indexOf(d) + 1;
 						})
+*/
+			my.xAxis.tickFormat(function(d) {
+						return '';
+						})
+			my.xAxis.ticks([]);
+			
 		}
 
 		my.yScale.domain([0, my.maxNumTakers]);
@@ -566,7 +573,8 @@ function gradeCharter() {
 		
 		my.xAxis = d3.svg.axis()
 					   .scale(theXScale)
-					   .orient("bottom");
+					   .orient("bottom")
+					   .ticks(0); // Remove if you want tick lines.
         my.yAxis = d3.svg.axis()
         			  .scale(theYScale)
         			  .orient("left");
