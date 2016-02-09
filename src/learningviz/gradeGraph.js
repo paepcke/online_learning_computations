@@ -48,7 +48,7 @@
  *        WHERE course_display_name = 'Engineering/db/2014_1'
  *          AND num_attempts > -1
  *    ) AS MyData
- *    ORDER BY sortKey, firstSubmit;
+ *    ORDER BY sortKey, lastSubmit;
  * 
  * 
  */
@@ -98,7 +98,7 @@ function gradeCharter() {
 	my.instance = null;
 	
 	//****my.outerWidth = 960,
-	my.outerWidth = 500,
+	my.outerWidth = 700,
 	my.outerHeight = 500,
 	//****my.margin = {top: 10, right: 10, bottom: 10, left: 10},
 	my.margin = {top: 0, right: 0, bottom: 0, left: 0},
@@ -162,7 +162,7 @@ function gradeCharter() {
 	 *-------------*/
 	my.init= function() {
 		
-		my.svg = d3.select("body").append("svg")
+		my.svg = d3.select("#chart").append("svg")
 			  		 .attr("class", "gradechart")
 			  		 .attr("id", "gradechart")
 			  		 .attr("width", my.outerWidth)
@@ -304,6 +304,8 @@ function gradeCharter() {
 				  .transition().duration(my.transitionDuration)
 				  .style("opacity", 1);
 
+		 // Update clock: time/date of last data object:
+		 document.getElementById("clock").innerHTML = gradeObjs[gradeObjs.length -1 ].lastSubmit
 	}
 	
 	/************************** Private Methods ********************/

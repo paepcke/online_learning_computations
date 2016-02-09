@@ -1,6 +1,10 @@
+.chart { width : 90%; 
+	 margin : auto;
+       }
+
 .gradechart { border-style : solid;
-		      border-width : 1pt;
-		    }
+	      border-width : 1pt;
+	    }
 .gradebar { fill : teal; }
 .axis path,
 .axis line { fill : none;
@@ -17,4 +21,12 @@
 			   
 .globalMeanLine {stroke-width : 3px;
 				stroke : LightBlue;
-			   }			   
+			   }
+
+.clock { font-size : 24px;
+	 text-align : center;
+	 padding-top : 20px;
+	 padding-bottom : 20px;
+	 #background-color : teal;
+	 opacity : 0.50;
+	 }

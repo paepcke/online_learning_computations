@@ -8,13 +8,16 @@
 
 	</head>
 <body>
-<!-- 	
+  <div class="clock" id="clock">
+    <!-- JavaScript will put latest data date here. -->
+    Date/time of most recent data
+  </div>
+
+  <div class="chart" id="chart">
     <script src="http://mono.stanford.edu/schoolbus/js_bus_bridge.js"></script>
-	<script src="http://mono.stanford.edu/learningviz.gradeGraph.js"></script>
- -->
- 	<script src="http://localhost/schoolbus/js_bus_bridge.js"></script>
-	<script src="gradeGraph.js"></script>
-		<script src="setupGradeStream.js"></script>
-		
-	<button type="button"  onclick="subscribe()">Subscribe to gradesCompilers</button>
+    <script src="http://mono.stanford.edu/learningviz/gradeGraph.js"></script>
+    <script src="http://mono.stanford.edu/learningviz/setupGradeStream.js"></script>
+  </div>
+  <p>
+   <button type="button"  onclick="subscribe()">Subscribe to gradesCompilers</button>
 </body>
