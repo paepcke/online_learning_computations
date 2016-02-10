@@ -23,10 +23,29 @@
 				stroke : LightBlue;
 			   }
 
-.clock { font-size : 24px;
+.clock { width : 150px;
+         font-size : 24px;
 	 text-align : center;
-	 padding-top : 20px;
+	 margin-left : 400px;
 	 padding-bottom : 20px;
-	 #background-color : teal;
+	 background-color : none;
 	 opacity : 0.50;
 	 }
+
+.playerButtonGroup {
+                     margin-left : 100px;
+                   }
+
+.playerButton { 
+		height: 60px;
+		width: 60px;
+		vertical-align: top;
+		border: none;
+		cursor: pointer;
+		background-color : white;
+		margin-left : 10px;
+	      }
+
+.startPlayOrResumeClass { background-image : url("img/pauseButtonTan60x60.png"); }
+.startPauseClass { background-image : url("img/playButtonTan60x60.png"); }
+#stopButton { background-image : url("img/stopButtonTan60x60.png"); }

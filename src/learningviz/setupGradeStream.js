@@ -75,6 +75,34 @@ var kickoff = function() {
 	
 }
 
+document.getElementById("startPlayOrResumeButton").addEventListener("click", function() {
+	var button = this;
+	// The right-wedge icon is on the button, and 
+	// user clicked it, so the data stream was paused
+	// and the user wants to resume it. 
+	// Change the button to be a pause button,
+	// and resume:
+	if (button.id == "startPlayOrResumeButton") {
+		// Currently paused, button icon is play img:
+		// Turn the button into a pause button:
+		button.id = "pauseButton";
+		bus.publish('{"cmd" : "resume"}', "dataserverControl");		
+	} else {
+		// Currently playing, button icon is pause img:
+		button.id = "startPlayOrResumeButton";
+		bus.publish('{"cmd" : "pause"}', "dataserverControl");	
+	}
+});
+
+
+document.getElementById("stopButton").addEventListener("click", function() {
+	bus.publish('{"cmd" : "stop"}', "dataserverControl");
+});
+
+/*var resumeData = function() {
+	bus.publish('{"cmd" : "changeSpeed"}', "dataserverControl");
+}
+*/
 //**********
 var subscribe = function() {
 	

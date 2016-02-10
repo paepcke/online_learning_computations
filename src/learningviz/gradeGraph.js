@@ -50,7 +50,7 @@
  *    ) AS MyData
  *    ORDER BY sortKey, lastSubmit;
  * 
- * 
+ * [Player button color: RGB=165,136,58 
  */
 
 var testTuples = [
@@ -644,6 +644,8 @@ function gradeCharter() {
 
 // Initialize everything once:
 gradeCharter();
+
+
 
 if (TESTING) {
 	var vizzer = gradeCharter.getInstance();

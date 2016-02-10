@@ -10,20 +10,23 @@ TODO:
 
 '''
 
+from __builtin__ import False
 import argparse
 import csv
+import functools
 import getpass
 import itertools
+import json
+import logging
 import os
 import sys
+import threading
 import time
-import json
 
 from pymysql_utils.pymysql_utils import MySQLDB
-
+from redis_bus_python.bus_message import BusMessage
 from redis_bus_python.redis_bus import BusAdapter
 from redis_bus_python.redis_lib.exceptions import ConnectionError 
-from redis_bus_python.bus_message import BusMessage
 
 class DataServer(object):
     '''
@@ -36,7 +39,24 @@ class DataServer(object):
           as a string array (for MySQLDataServer).
           
     For testing, can use online_learning_computations/src/learningviz/testfile.csv 
+    
+    The server listens on topic dataserverControl for messages
+    that cause it to pause, resume, stop, and change speed. The content
+    field of the associated messages are:
+       {"cmd" : "pause"}
+       {"cmd" : "resume"}
+       {"cmd" : "stop"}
+       {"cmd" : "changeSpeed", "arg" : "<fractionalSeconds>"}
+       
+    A stop message will exit the server!
+    
     '''
+
+    # Topic on which this server listens for control messages,
+    # such as pause, resume, newSpeed, and stop:
+    
+    SERVER_CONTROL_TOPIC = "dataserverControl"
+    INTER_BATCH_DELAY    = 2 # second
 
     mysql_default_port = 3306
     mysql_default_host = '127.0.0.1'
@@ -44,22 +64,106 @@ class DataServer(object):
     mysql_default_pwd  = ''
     mysql_default_db   = 'mysql'
     
-    inter_batch_delay    = 2 # second
-
-    def __init__(self, topic, redis_server='localhost',):
+    # Remember whether logging has been initialized (class var!):
+    loggingInitialized = False
+    logger = None
+    
+    
+    def __init__(self, topic, redis_server='localhost', logFile=None, logLevel=logging.INFO):
+        '''
+        Get ready to publish content of a CSV file or results
+        from a query to the SchoolBus.
+        
+        :param topic: SchoolBus topic on which to publish data
+        :type topic: str
+        :param redis_server: host where Redis server is running. Default: localhost.
+        :type redis_server: str
+        '''
         super(DataServer,self).__init__()
         try:
             self.bus = BusAdapter(host=redis_server)
         except ConnectionError:
-            print("Cannot connect to bus; is redis_bus running?")
+            self.logError("Cannot connect to bus; is redis_bus running?")
             sys.exit()
+            
+        self.setupLogging(logLevel, logFile)            
         self.colnames = []
         self.topic = topic
         
-    def send_all(self, batch_size=1, max_to_send=-1, inter_batch_delay=inter_batch_delay):
+        self.pausing = False
+        self.pause_done_event = threading.Event()
+        
+        self.stopping = False
+        
+        # Listen to messages from the bus that control
+        # how this server functions:
+        self.bus.subscribeToTopic(DataServer.SERVER_CONTROL_TOPIC, functools.partial(self.service_control_msgs))
+        
+    def service_control_msgs(self, controlMsg):
+        '''
+        Receive function control messages from the bus. Recognized
+        commands are
+            - pause
+            - resume
+            - stop
+            - changeSpeed <newSpeedInFractionalSeconds>
+        
+        :param controlMsg: Message with content of the form: {"cmd" : "<commandName">", "arg" : "<argIfNeeded>"}
+        :type controlMsg: BusMessage
+        '''
+        
+        try:
+            cntrl_dict = json.loads(controlMsg.content)
+        except (ValueError, TypeError):
+            # Not valid JSON:
+            self.logError("Bad JSON in control msg: %s" % str(cntrl_dict))
+            return
+        
+        try:
+            cmd = cntrl_dict['cmd']
+        except KeyError:
+            # No command given:
+            self.logError("No command in control msg: %s" % str(cntrl_dict))
+            return
+        
+        if cmd == 'pause':
+            self.pausing = True
+            self.logInfo('Pausing %s' % self.topic)
+            return
+        elif cmd == 'resume':
+            self.pausing = False
+            self.pause_done_event.set()
+            self.logInfo( 'Resuming %s' % self.topic)
+            return
+        elif cmd == 'stop':
+            self.stopping = True
+            self.logInfo('Received stop %s' % self.topic)
+            return
+        elif cmd == 'changeSpeed':
+            try:
+                new_speed = float(cntrl_dict.get('arg', None))
+            except (ValueError, TypeError):
+                self.logError('Change-Speed command issued without valid new-speed number: %s' % new_speed)
+                return
+            else:
+                self.logInfo('Changing speed for topic %s to %s' % (self.topic, new_speed))
+                DataServer.INTER_BATCH_DELAY = new_speed
+                
+        else:
+            # Unrecognized command:
+            self.logError('Command not recognized in message %s' % str(controlMsg))
+            return
+        
+    def send_all(self, batch_size=1, max_to_send=-1, inter_batch_delay=None):
+        if inter_batch_delay is None:
+            DataServer.INTER_BATCH_DELAY = DataServer.INTER_BATCH_DELAY
+        elif type(inter_batch_delay) != 'float' and type(inter_batch_delay) != 'int':
+            raise TypeError('The inter_batch_delay parameter for send_all must be None, float, or int; was %s' % str(inter_batch_delay))
+        else:
+            DataServer.INTER_BATCH_DELAY = inter_batch_delay 
         row_count = 0
         tuple_dict_batch = []
-        print('Starting to publish data to %s...' % self.topic)
+        self.logInfo('Starting to publish data to %s...' % self.topic)
         try:
             for info in self.it:
                 if len(info) == 0:
@@ -75,10 +179,15 @@ class DataServer(object):
                     self.bus.publish(bus_msg)
                     row_count += 1
                     tuple_dict_batch = []
-                    time.sleep(DataServer.inter_batch_delay)
+                    if self.pausing:
+                        self.pause_done_event.wait()
+                    elif self.stopping:
+                        return
+                    else:
+                        time.sleep(DataServer.INTER_BATCH_DELAY)
                     continue
         finally:
-            print("Published %s data rows." % row_count)
+            self.logInfo("Published %s data rows." % row_count)
     
     def make_data_dict(self, content_line_arr):
         '''
@@ -125,6 +234,44 @@ class DataServer(object):
             existing_colnames.append('col-%s' % str(i))
         return existing_colnames
 
+    def setupLogging(self, loggingLevel, logFile):
+        if DataServer.loggingInitialized:
+            # Remove previous file or console handlers,
+            # else we get logging output doubled:
+            DataServer.logger.handlers = []
+            
+        # Set up logging:
+        DataServer.logger = logging.getLogger('dataServer')
+        DataServer.logger.setLevel(loggingLevel)
+        # Create file handler if requested:
+        if logFile is not None:
+            handler = logging.FileHandler(logFile)
+        else:
+            # Create console handler:
+            handler = logging.StreamHandler()
+        handler.setLevel(loggingLevel)
+#         # create formatter and add it to the handlers
+#         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+#         fh.setFormatter(formatter)
+#         ch.setFormatter(formatter)
+        # Add the handler to the logger
+        DataServer.logger.addHandler(handler)
+        
+        DataServer.loggingInitialized = True
+
+    def logWarn(self, msg):
+        DataServer.logger.warn(msg)
+
+    def logInfo(self, msg):
+        DataServer.logger.info(msg)
+     
+    def logError(self, msg):
+        DataServer.logger.error(msg)
+
+    def logDebug(self, msg):
+        DataServer.logger.debug(msg)
+
+
 class MySQLDataServer(DataServer):
 
     def __init__(self, 
@@ -137,7 +284,10 @@ class MySQLDataServer(DataServer):
                  db=DataServer.mysql_default_db, 
                  redis_server='localhost',
                  colname_arr=[],
-                 max_to_send=-1):
+                 max_to_send=-1,
+                 logFile=None,
+                 logLevel=logging.INFO                 
+                 ):
         '''
         Constructor
         '''
@@ -145,7 +295,7 @@ class MySQLDataServer(DataServer):
         # So need to use explicit superclass call...odd. 
         #super('CSVDataServer', self).__init__(topic)
         #super('MySQLDataServer', self).__init__(topic)
-        DataServer.__init__(self, topic)
+        DataServer.__init__(self, topic, logFile=logFile, logLevel=logLevel)
         self.db = MySQLDB(host=host, port=port, user=user, passwd=pwd, db=db, redis_server=redis_server)
         # Column name array to superclass instance:
         self.colnames = colname_arr
@@ -160,11 +310,14 @@ class CSVDataServer(DataServer):
                  first_line_has_colnames=False,
                  redis_server='localhost',
                  colnames=[],
-                 max_to_send=-1):
+                 max_to_send=-1,
+                 logFile=None,
+                 logLevel=logging.INFO                 
+                 ):
         # Super throws 'TypeError: must be type, not str'
         # So need to use explicit superclass call...odd. 
         #super('CSVDataServer', self).__init__(topic)
-        DataServer.__init__(self, topic, redis_server=redis_server)
+        DataServer.__init__(self, topic, redis_server=redis_server, logFile=logFile, logLevel=logLevel)
                 
         fd = open(fileName, 'r')
         csvreader = csv.reader(fd)
@@ -217,7 +370,6 @@ if __name__ == '__main__':
                         dest='csvOrDb',
                         choices=['csv', 'mysql'],
                         default='csv',
-                        required=True,
                         help="Service type: 'csv' file or 'mysql' database; required.",
                         )
     parser.add_argument('-c', '--cols1stline',
@@ -234,8 +386,17 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--period',
                         dest='period',
                         type=float,
-                        help="Fractional seconds to wait between data batches. Default: %s" % DataServer.inter_batch_delay,
-                        default=DataServer.inter_batch_delay)
+                        help="Fractional seconds to wait between data batches. Default: %s" % DataServer.INTER_BATCH_DELAY,
+                        default=DataServer.INTER_BATCH_DELAY)
+    parser.add_argument('-l', '--logFile', 
+                        help='Fully qualified log file name to which info and error messages \n' +\
+                             'are directed. Default: stdout.',
+                        dest='logFile',
+                        default=None);
+    parser.add_argument('-v', '--verbose', 
+                        help='Print operational info to log.', 
+                        dest='verbose',
+                        action='store_true');
     parser.add_argument('fileOrQuery',
                         help="For mysql src: query to run; for csv: file name.",
                        )
@@ -262,8 +423,8 @@ if __name__ == '__main__':
     
     max_to_send = args.max_to_send
     
-    DataServer.inter_batch_delay = args.period
-    
+    DataServer.INTER_BATCH_DELAY = args.period
+        
     # If serving a database query: Get all the security done:
     if src_type == 'db':
         host = args.host
@@ -314,7 +475,9 @@ if __name__ == '__main__':
                                first_line_has_colnames=colsIn1stLine,
                                redis_server=redis_server,
                                colnames=colnames,
-                               max_to_send=max_to_send)
+                               max_to_send=max_to_send,
+                               logFile=args.logFile,
+                               logLevel=logging.DEBUG if args.verbose else logging.INFO)
     else:
         server = MySQLDataServer(query,
                                  args.topic, 
@@ -325,4 +488,7 @@ if __name__ == '__main__':
                                  db=db,
                                  redis_server=redis_server,
                                  colname_arr=colnames,
-                                 max_to_send=max_to_send)
+                                 max_to_send=max_to_send,
+                                 logFile=args.logFile,
+                                 logLevel=logging.DEBUG if args.verbose else logging.INFO
+                                 )
