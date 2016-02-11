@@ -179,6 +179,12 @@ function gradeCharter() {
 		    .range([my.chartOriginY, my.margin.top + my.padding.top]);
 		
 		my.createAxes(my.xScale, my.yScale);
+		
+		// The tooltip area: just a hidden div, styled
+		// via css:
+		my.tooltip = d3.select("body").append("div")
+			.attr("class", "tooltip")
+			.attr("display", "none");
 	}
 	
 	/************************** Public Methods ********************/
@@ -259,7 +265,20 @@ function gradeCharter() {
 		    	    	 .attr("class", "globalMeanLine")
 		    	    	 .attr("id", function(probId) {
 		    	    	 	return probId + 'globalMeanLine';
-		    	    	 });    
+		    	    	 });
+        // Add tooltip-showing when user clicks on a bar:
+        enterSelection.on("mouseover", function() {
+        					var mouseX = d3.event.pageX;
+        					var mouseY = d3.event.pageY;
+        					my.tooltip
+        						.text('This is foo.')
+        						.style("left", (mouseX - 34) + "px")
+        						.style("top", (mouseY - 12) + "px")
+        						.attr('display', 'inline');
+        					
+        					})
+        			  .on("mouseout", function() { 
+        				  	my.tooltip.attr('display', 'none')});
 		    	 
 	    // Both new and old rects: update sizes
 		// and locations on X-axis:
