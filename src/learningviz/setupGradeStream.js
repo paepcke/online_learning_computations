@@ -3,6 +3,8 @@
 //   o If num_attempts missing, assume 1.
 
 
+var PAUSE_BUTTON_PULSE_PERIOD = 1000;
+
 var vizzer = gradeCharter.getInstance();
 
 var gradeReceiver = function(gradeDataBusObj) {
@@ -75,28 +77,60 @@ var kickoff = function() {
 	
 }
 
-document.getElementById("startPlayOrResumeButton").addEventListener("click", function() {
+document.getElementById("playButton").addEventListener("click", function() {
+	var pauseButton = document.getElementById('pauseButton');
+	setPauseState('playing', pauseButton);
+});
+
+// Initialize the Pause button to indicated that we are 
+// currently playing:
+document.getElementById("pauseButton").status = 'playing';
+document.getElementById("pauseButton").addEventListener("click", function() {
 	var button = this;
-	// The right-wedge icon is on the button, and 
-	// user clicked it, so the data stream was paused
-	// and the user wants to resume it. 
-	// Change the button to be a pause button,
-	// and resume:
-	if (button.id == "startPlayOrResumeButton") {
-		// Currently paused, button icon is play img:
-		// Turn the button into a pause button:
-		button.id = "pauseButton";
-		bus.publish('{"cmd" : "resume"}', "dataserverControl");		
+	
+	if (button.status === 'paused') {
+		setPauseState('playing', button);
 	} else {
-		// Currently playing, button icon is pause img:
-		button.id = "startPlayOrResumeButton";
-		bus.publish('{"cmd" : "pause"}', "dataserverControl");	
+		setPauseState('paused', button);
 	}
 });
 
+var pauseButtonDimTimer = null;
+
+var setPauseState = function(newState, button) {
+	if (newState === 'playing') {
+		bus.publish('{"cmd" : "resume"}', "dataserverControl");
+		button.status = 'playing';
+		try {
+			clearInterval(pauseButtonDimTimer);
+			document.getElementById("pauseButton").style.opacity = 1.0;
+		} catch (err) {
+			return;
+		}
+	} else {
+		// New state is to be paused:
+		bus.publish('{"cmd" : "pause"}', "dataserverControl");
+		button.status = 'paused';
+		// Every PAUSE_BUTTON_PULSE_PERIOD milliseconds: Dim or undim
+		// the pause button:
+		var pause_button_dimmed = false;
+		pauseButtonDimTimer = setInterval(function() {
+			if (pause_button_dimmed) {
+				document.getElementById("pauseButton").style.opacity = 1.0;
+				pause_button_dimmed = false;
+			} else {
+				document.getElementById("pauseButton").style.opacity = 0.5;
+				pause_button_dimmed = true;
+			}
+			
+		}, PAUSE_BUTTON_PULSE_PERIOD)
+	}
+}
 
 document.getElementById("stopButton").addEventListener("click", function() {
-	bus.publish('{"cmd" : "stop"}', "dataserverControl");
+	if (confirm("This action will stop the stream. Do it?")) {
+		bus.publish('{"cmd" : "stop"}', "dataserverControl");
+	}
 });
 
 /*var resumeData = function() {

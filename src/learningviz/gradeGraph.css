@@ -45,7 +45,8 @@
 		background-color : white;
 		margin-left : 10px;
 	      }
+.playerButton:focus { outline : none; }
 
-.startPlayOrResumeClass { background-image : url("img/pauseButtonTan60x60.png"); }
-.startPauseClass { background-image : url("img/playButtonTan60x60.png"); }
+#playButton { background-image : url("img/playButtonTan60x60.png"); }
+#pauseButton { background-image : url("img/pauseButtonTan60x60.png"); }
 #stopButton { background-image : url("img/stopButtonTan60x60.png"); }

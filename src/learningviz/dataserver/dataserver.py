@@ -127,16 +127,23 @@ class DataServer(object):
             return
         
         if cmd == 'pause':
+            if self.pausing:
+                return
             self.pausing = True
             self.logInfo('Pausing %s' % self.topic)
             return
         elif cmd == 'resume':
+            if not self.pausing:
+                return
             self.pausing = False
             self.pause_done_event.set()
             self.logInfo( 'Resuming %s' % self.topic)
             return
         elif cmd == 'stop':
             self.stopping = True
+            # In case the send-all() loop is in paused condition,
+            # set the unpause-event:
+            self.pause_done_event.set()
             self.logInfo('Received stop %s' % self.topic)
             return
         elif cmd == 'changeSpeed':
@@ -180,7 +187,11 @@ class DataServer(object):
                     row_count += 1
                     tuple_dict_batch = []
                     if self.pausing:
+                        # Wait till service_control_msgs() is called 
+                        # by an incoming bus message that either un-pauses
+                        # or stops the dataserver:
                         self.pause_done_event.wait()
+                        self.pause_done_event.clear()
                     elif self.stopping:
                         return
                     else:
