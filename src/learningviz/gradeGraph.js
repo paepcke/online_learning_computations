@@ -121,6 +121,7 @@ function gradeCharter() {
 	
 	//my.transitionDuration = 1500;
 	my.transitionDuration = 500;
+	my.tooltipFadeoutDuration = 500;
 	
 	my.svg;
 	my.xScale;
@@ -152,7 +153,7 @@ function gradeCharter() {
 	// first try.
 	my.mean1stSuccessRate = 0;
 
-	
+	my.selectedOutline = "red solid 2px";
 		
 	/************************** Initialization ********************/
 	
@@ -184,7 +185,21 @@ function gradeCharter() {
 		// via css:
 		my.tooltip = d3.select("body").append("div")
 			.attr("class", "tooltip")
-			.attr("display", "none");
+			.attr("display", "inline")
+			.attr("id", "tooltip")
+			.style("visibility", "hidden");
+		
+		// Tooltip that appears when brushing over a
+		// gradebar:
+		my.brushTooltip = d3.select("body").append("div")
+			.attr("class", "brushTooltip")
+			.attr("id", "brushTooltip")
+			.attr("display", "inline")
+			.style("visibility", "hidden"); 
+		
+		// Bar that is currently selected, i.e. 
+		// someone clicked on it:
+		my.selectedEl = null;
 	}
 	
 	/************************** Public Methods ********************/
@@ -266,19 +281,21 @@ function gradeCharter() {
 		    	    	 .attr("id", function(probId) {
 		    	    	 	return probId + 'globalMeanLine';
 		    	    	 });
+        
+        // Add a brush-tooltip that appears while brushing
+        // over a gradebar, and a mousedown for selecting
+        // gradebars:
+        
         // Add tooltip-showing when user clicks on a bar:
-        enterSelection.on("mouseover", function() {
-        					var mouseX = d3.event.pageX;
-        					var mouseY = d3.event.pageY;
-        					my.tooltip
-        						.text('This is foo.')
-        						.style("left", (mouseX - 34) + "px")
-        						.style("top", (mouseY - 12) + "px")
-        						.attr('display', 'inline');
-        					
-        					})
-        			  .on("mouseout", function() { 
-        				  	my.tooltip.attr('display', 'none')});
+        enterSelection.on("mouseenter", function() {
+        					my.brushIn(d3.event);
+        				    })
+        			  .on("mouseout", function() {
+        				    my.brushOut(d3.event);
+        				    })
+        			  .on("mousedown", function() {
+        				    my.selectEl(d3.event);
+        			        })
 		    	 
 	    // Both new and old rects: update sizes
 		// and locations on X-axis:
@@ -329,6 +346,122 @@ function gradeCharter() {
 	
 	/************************** Private Methods ********************/
 
+	/*-----------------------
+	 * selectEl
+	 *----------*/
+
+	my.selectEl = function(event) {
+		var mouseX = event.pageX;
+		var mouseY = event.pageY;
+		var eventEl = event.target;
+		if (eventEl.className.baseVal !== 'gradebar') {
+			// Clicked outside of any grade bar;
+			// If one is selected, de-select it now:
+			my.deSelectEl(my.selectedEl);
+			return;
+		}
+		if (eventEl !== my.selectedEl) {
+			// User mouse-downed on a grade bar, but
+			// another bar is already selected; de-select
+			// that first; if nothing is selected,
+			// my.selectedEl will be null, which is fine:
+			my.deSelectEl(my.selectedEl);
+		}
+		// New gradebar is selected; remember it:
+		my.selectedEl = eventEl;
+		// Put a border around the bar:
+		eventEl.style.outline = my.selectedOutline;
+		// Make the tooltip visible:
+		my.tooltip
+			.text('This is foo.')
+			.style("left", (mouseX - 34) + "px")
+			.style("top", (mouseY - 12) + "px")
+			.style('visibility', 'visible');
+	}
+		
+	/*-----------------------
+	 * deSelectEl
+	 *----------*/
+	
+	/**
+	 * Given a visual object, indicate that it is not selected.
+	 * We remove the outline, and set my.selectedEl to null.
+	 * We hide the tooltip. It is OK to pass in null. The 
+	 * function will simply return.
+	 */
+	
+	my.deSelectEl = function(el) {
+		if (el === null) {
+			return;
+		}
+		el.style.outlineStyle = "";
+		my.tooltip.style('visibility', 'hidden');
+		my.selectedEl = null;
+	}
+
+	/*-----------------------
+	 * brushIn
+	 *--------------*/
+	
+	/**
+	 * User brushed into one of the gradebars.
+	 * Make brush-tooltip visible. 
+	 */
+	
+	my.brushIn = function(event) {
+		var mouseX = event.pageX;
+		var mouseY = event.pageY;
+		var tooltipHeight = my.brushTooltip.style.minHeight;
+		my.brushTooltip.text("Click on bar for details.");
+		my.brushTooltip
+			.style("left", (mouseX - 34) + "px")
+			//.style("top", (mouseY - 12) + "px")
+			.style("top", (mouseY - 60) + "px")
+			.style('visibility', 'visible');
+		
+		my.brushTooltip.style('visibility', 'visible');
+	}
+	
+	/*-----------------------
+	 * brushOut
+	 *--------------*/
+	
+	/**
+	 * User brushed out of a gradebar.
+	 * Make brush-tooltip invisible. 
+	 */
+	
+	my.brushOut = function(event) {
+		my.brushTooltip.style('visibility', 'hidden');
+	}
+	
+	/*-----------------------
+	 * gradeBarMoved
+	 *----------*/
+	
+	/**
+	 * Called with event when a gradebar moves along the x axis.
+	 * This occurs when the x axis is rescaled. We take two
+	 * actions: if a brushTooltip is visible, we fade it out.
+	 * If a full tooltip is visible, we update its callout line
+	 * to the selected bar.
+	 */
+	
+	 my.gradeBarMoved = function(event) {
+		 if (my.brushTooltip.style('visibility') === 'visible') {
+			 my.brushTooltip
+				  .transition().duration(my.tooltipFadeoutDuration)
+				  // Fade out, and get callback at the end to 
+				  // set the brushTooltip's visibility to 'hidden':
+				  .style("opacity", 0).each("end", function() {
+					  my.brushTooltip.style('visibility', 'hidden');
+					  my.brushTooltip.style('opacity', 1);
+				  })
+		 }
+		 
+		 //******* UPDATE Callout line
+	 }
+	
 	/*-----------------------
 	 * lineFunction
 	 *-------------*/
@@ -508,6 +641,11 @@ function gradeCharter() {
 			my.svg.select("#xAxisTitle")
 				.transition().duration(my.transitionDuration)
 				.attr("transform", "translate(" + xAxisMidpoint + "," + my.xTitleOriginY + ")")
+				// Call my.gradebarMoved() to make corrections
+				// to any widgets that refer to the gradebars,
+				// because if the x-axis title moved, then they
+				// moved as well:
+				.each("end", my.gradeBarMoved)
 		}
 		if (my.yScale.domain().length > 0) {
 			var yAxisMidpoint = my.computeYTitleMidpoint();

@@ -3,7 +3,8 @@
        }
 
 .gradechart { border-style : solid;
-	      border-width : 1pt;
+	      border-width : 1px;
+	      background-color : rgba(166,137,59,0.3);  /* Light tan */ 
 	    }
 .gradebar { fill : teal; }
 .axis path,
@@ -51,10 +52,21 @@
 #pauseButton { background-image : url("img/pauseButtonTan60x60.png"); }
 #stopButton { background-image : url("img/stopButtonTan60x60.png"); }
 
+/* Tooltip for when user clicks a gradebar: */
 .tooltip { position : absolute;
-           background : red; 
+           background : rgba(166,137,59,0.3);  /* Light tan */
 	   width : 50px;
 	   height : 50px;
 	   padding : 8px;
 	   pointer-events: none;
 	 }
+
+/* Tooltip for when user brushes over a gradebar: */
+.brushTooltip {position : absolute;
+               background : rgb(156,207,130);    /*  Light green */
+	       color : black;         		 /* Text color */
+	       min-height : 1.25em;   		 /* A bit higher than one line */
+	       padding : 8px;
+	       pointer-events: none;
+	       outline : black solid 2px;
+	      }
