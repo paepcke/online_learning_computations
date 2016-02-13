@@ -82,6 +82,27 @@ var testTuples = [
 
 var TESTING = false;
 
+/*-----------------------
+ * deSelect
+ *----------*/
+
+/**
+ * Add function moveToFront() to d3's 'selection()'
+ * prototype. Use it to bring svg elements to the front.
+ * Ex.:
+ *     ...
+ *  	.on("mouseover",function(){
+ *  	        var sel = d3.select(this);
+ *  	        sel.moveToFront();
+ *  	      });
+ */
+
+d3.selection.prototype.moveToFront = function() {
+  return this.each(function(){
+  this.parentNode.appendChild(this);
+  });
+};
+
 function gradeCharter() {
 
 	/************************** Instance Variables ********************/
@@ -189,13 +210,28 @@ function gradeCharter() {
 			.attr("id", "tooltip")
 			.style("visibility", "hidden");
 		
+		// Get a D3 drag behavior for use with the tooltip:
+		var drag = d3.behavior.drag()
+        			.on("drag", function() {
+        				var tooltipRect = this.getBoundingClientRect();
+        			    this.style.left = (tooltipRect.left + d3.event.dx)+'px';
+        			    this.style.top  = (tooltipRect.top  + d3.event.dy)+'px';
+        			});		
+
+		// Make tooltip div draggable:
+		my.tooltip.call(drag);		
+		
 		// Tooltip that appears when brushing over a
 		// gradebar:
 		my.brushTooltip = d3.select("body").append("div")
 			.attr("class", "brushTooltip")
 			.attr("id", "brushTooltip")
 			.attr("display", "inline")
-			.style("visibility", "hidden"); 
+			.style("visibility", "hidden");
+		
+		// Bottom of the clock node (for placing the top of the tooltip panel):
+		var clockRect = document.getElementById("clock").getBoundingClientRect();
+		my.clockBottom = clockRect.top + clockRect.height;
 		
 		// Bar that is currently selected, i.e. 
 		// someone clicked on it:
@@ -371,12 +407,26 @@ function gradeCharter() {
 		my.selectedEl = eventEl;
 		// Put a border around the bar:
 		eventEl.style.outline = my.selectedOutline;
-		// Make the tooltip visible:
-		my.tooltip
+		// Make the tooltip visible; commented version
+		// puts the tooltip near the mouse pointer:
+/*		my.tooltip
 			.text('This is foo.')
 			.style("left", (mouseX - 34) + "px")
 			.style("top", (mouseY - 12) + "px")
 			.style('visibility', 'visible');
+*/	
+		// This version puts it to the upper right of the chart area:
+		my.tooltip
+			.text('This is foo and bar and something else.')
+			.style("width", function() {
+				return this.clientWidth + 1;
+			})
+			// Put left edge of tooltip such that the tooltip panel
+			// ends just within the chart area:
+			.style("left", (my.chartOriginX + my.outerWidth - my.tooltip.node().clientWidth) + "px")
+			// Place top of tooltip panel just below the clock:
+			.style("top",  + my.clockBottom + "px")
+			.style('visibility', 'visible')
 	}
 		
 	/*-----------------------

@@ -13,7 +13,7 @@ setup(
 			'configparser>=3.3.0r2', 
 			'argparse>=1.2.1', 
 			'numpy>=1.8.0',
-			'redis_bus_python>=0.0.4'
+			'redis_bus_python>=0.3'
 			],
     tests_require    = ['sentinels>=0.0.6', 'nose>=1.0'],
 

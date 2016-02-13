@@ -24,11 +24,9 @@
 				stroke : LightBlue;
 			   }
 
-.clock { width : 150px;
-         font-size : 24px;
+.clock { font-size : 24px;
 	 text-align : center;
-	 margin-left : 400px;
-	 padding-bottom : 20px;
+	 margin-left : 200px;
 	 background-color : none;
 	 opacity : 0.50;
 	 }
@@ -40,7 +38,6 @@
 .playerButton { 
 		height: 60px;
 		width: 60px;
-		vertical-align: top;
 		border: none;
 		cursor: pointer;
 		background-color : white;
@@ -54,11 +51,14 @@
 
 /* Tooltip for when user clicks a gradebar: */
 .tooltip { position : absolute;
-           background : rgba(166,137,59,0.3);  /* Light tan */
-	   width : 50px;
-	   height : 50px;
+           /* background : rgba(166,137,59,0.3);*/  /* Light tan */
+	   background : rgb(166,137,59);
+	   width : auto;                          /* Expand to text width */
+	   height : auto;
 	   padding : 8px;
-	   pointer-events: none;
+	   border-radius : 8px;
+	   /* box-shadow: 5px 5px 5px #888888; */ /* Soft drop shadow*/
+	   box-shadow: 0px 0px 3pt 1pt black;     /* Simulated outline but hugging the shape */
 	 }
 
 /* Tooltip for when user brushes over a gradebar: */
