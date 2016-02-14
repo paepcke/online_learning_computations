@@ -1,9 +1,10 @@
 "use strict"
 /*
  * TODO:
- *     o Add 'testing' as a param for instance creation?
  *     o Add optional callback function to subscribeToTopic() 
- *     
+ *     o put %correctness for each problem part into tooltip table.
+ *     o add deselecting of gradebar by clicking anywhere
+ *     o speed control?
 
  * Receive tuples of grades from a WebSocket, and
  * visualize in a browser window. The viz will 
@@ -23,6 +24,7 @@
  *    firstSubmit(datetime),  2013-05-13 12:38:30
  *    lastSubmit(datetime),   2013-05-13 12:42:37 
  *    probId(string)          i4x://Medicine/HRP258/problem/e252cc0b13b146c1805a90cf45aa376b
+ *    partsCorrectness		  ++--+
  * 
  * Underlying query (It will have an extra '0' or '1' in
  * the first column; to avoid that, use only the second
@@ -34,7 +36,7 @@
  *    FIELDS TERMINATED BY "," OPTIONALLY ENCLOSED BY '"' LINES TERMINATED BY '\n'
  *    FROM
  *     (
- *        SELECT 0 AS sortKey, 'course','learner','percentGrade','attempts','firstSubmit', 'lastSubmit','probId'
+ *        SELECT 0 AS sortKey, 'course','learner','percentGrade','attempts','firstSubmit', 'lastSubmit','probId','partsCorrectness'
  *        UNION ALL
  *        SELECT 1 AS sortKey,
  *            course_display_name AS course,
@@ -43,12 +45,25 @@
  *            num_attempts AS attempts,
  *            first_submit AS firstSubmit,
  *            last_submit AS lastSubmit,
- *            module_id AS probId
+ *            module_id AS probId,
+ *            parts_correctness AS partsCorrectness 
  *        FROM ActivityGrade
  *        WHERE course_display_name = 'Engineering/db/2014_1'
  *          AND num_attempts > -1
  *    ) AS MyData
  *    ORDER BY sortKey, lastSubmit;
+ *
+ * If the dates firstSubmit and lastSubmit are not valid dates, as 
+ * recognized by JS's Date.parse() then the respective row is skipped.
+ * 
+ * The partsCorrectness is expected to be empty, or contain a series
+ * of plus and minus characters. Each character stands for correctness
+ * or incorrectness of one problem part in the assignment that the row
+ * represents. See http://datastage.stanford.edu, search for ActivityGrade
+ * table definition. If the partsCorrectness contains any characters 
+ * other then plus/minus, the parts-correctness in the toolkit panel
+ * for the respective problem will be omitted.
+ *  
  * 
  * [Player button color: RGB=165,136,58 
  */
@@ -141,8 +156,9 @@ function gradeCharter() {
 	my.yTitleOriginY = my.chartHeight - my.chartHeight/2;
 	
 	//my.transitionDuration = 1500;
-	my.transitionDuration = 500;
+	my.transitionDuration = 500;      // milliseconds
 	my.tooltipFadeoutDuration = 500;
+	my.tooltipFadeinDuration = 750;
 	
 	my.svg;
 	my.xScale;
@@ -407,17 +423,54 @@ function gradeCharter() {
 		my.selectedEl = eventEl;
 		// Put a border around the bar:
 		eventEl.style.outline = my.selectedOutline;
-		// Make the tooltip visible; commented version
-		// puts the tooltip near the mouse pointer:
-/*		my.tooltip
-			.text('This is foo.')
-			.style("left", (mouseX - 34) + "px")
-			.style("top", (mouseY - 12) + "px")
-			.style('visibility', 'visible');
-*/	
+		
+		my.prepareTooltip(eventEl);
+		my.tooltip.transition().duration(my.tooltipFadeinDuration)
+							   .style('opacity', 1)
+							   .each("start", function() {
+								        my.tooltip.style('opacity', 0);
+  								        my.tooltip.style('visibility', 'visible');
+							   });
+	}
+
+	/*-----------------------
+	 * prepareTooltip
+	 *----------*/
+	
+	/**
+	 * Fills the tooltip panel with the information of the selected gradebar.
+	 * defines dimensions and position of the tooltip panel, but does not
+	 * make the panel visible.
+	 * 
+	 * :param gradebar: the gradebar that was clicked to pull up the tooltip
+	 * :type gradebar: rect
+	 */
+	
+	my.prepareTooltip = function(gradebar) {
+		var populateTooltip;
+		var probName = gradebar.id
+		var numAttempts = my.probStats[probName]
+		var firstSuccesses = my.probStats['num1stSuccesses']
+		var firstSuccessRate = my.probStats['successRate']
+		var mean1stSuccessRate = 0; //*****
+		
 		// This version puts it to the upper right of the chart area:
+		var p1 = 90;
+		var p2 = 80;
+		var p3 = 100;
 		my.tooltip
-			.text('This is foo and bar and something else.')
+			.each(function() {
+				this.innerHTML = 
+				`<TABLE class=probCorrectTbl>
+					<tr>
+					<td>P1 %correct</td><td>P2 %correct</td><td>P3 %correct</td>
+					</tr>
+					<tr>
+					<td>${p1}%</td><td>${p2}%</td><td>${p3}%</td>
+					</tr>
+					</table>
+					`
+			})
 			.style("width", function() {
 				return this.clientWidth + 1;
 			})
@@ -426,9 +479,8 @@ function gradeCharter() {
 			.style("left", (my.chartOriginX + my.outerWidth - my.tooltip.node().clientWidth) + "px")
 			// Place top of tooltip panel just below the clock:
 			.style("top",  + my.clockBottom + "px")
-			.style('visibility', 'visible')
 	}
-		
+	
 	/*-----------------------
 	 * deSelectEl
 	 *----------*/
@@ -574,10 +626,6 @@ function gradeCharter() {
 		
 		var newProblemObjs = [];
 		
-		// More attempts at problems; update the total
-		// number of attempts:
-		my.totalAttempts += gradeObjs.length;
-		
 		for (var i=0, len=gradeObjs.length; i<len; i++) {
 			var gradeObj = gradeObjs[i];
 			var probId = gradeObj["probId"];
@@ -598,6 +646,26 @@ function gradeCharter() {
 				continue;
 			}
 			
+			var firstSubmit = new Date(Date.parse(gradeObj['firstSubmit']));
+			if (!my.isValidDate(firstSubmit)) {
+				console.log("New data has bad firstSubmit field: " + JSON.stringify(gradeObj, null, 4));
+				continue;
+			}
+			
+			var lastSubmit = new Date(Date.parse(gradeObj['lastSubmit']));
+			if (!my.isValidDate(lastSubmit)) {
+				console.log("New data has bad lastSubmit field: " + JSON.stringify(gradeObj, null, 4));
+				continue;
+			}
+			
+			// The parts-correctness column is optional. If present,
+			// it will contain plus- and minus characters, one for each
+			// part of the problem:
+			var partsCorrectness = gradeObj['partsCorrectness']
+			if (typeof partsCorrectness === 'undefined') {
+				partsCorrectness = null;
+			}
+			
 			// Tmp to remember old number of a prob's
 			// attempts after updating that number:
 			var prevNumAttempts = 0;
@@ -608,17 +676,42 @@ function gradeCharter() {
 				// nobody take it yet:
 				my.probStats[probId] = {}
 				my.probStats[probId].numAttempts = newNumAttempts;
+				// How often this problem was successfully taken
+				// with one try:
 				my.probStats[probId].num1stSuccesses = 0;
 				my.probStats[probId].successRate = 0;
+				my.probStats[probId].earliestSubmit = firstSubmit;
+				my.probStats[probId].mostRecentSubmit = lastSubmit;
+				if (partsCorrectness !== null) {
+					// Make array the length of the number of parts
+					// this assignment has:
+					my.probStats[probId].partsCorrectness = new Array(partsCorrectness.length).fill(0);
+				}
 				my.probIdArr.push(probId);
-				// How often this problem was successfully taken
-				// with one tey:
 				// Remember the info about this new problem:
 				newProblemObjs.push(gradeObj);
 				var haveNewProbId = true;
 			} else {
 				prevNumAttempts = my.probStats[probId].numAttempts;
 				my.probStats[probId].numAttempts += newNumAttempts;
+				// Update earliest/latest submit dates for this
+				// existing problem:
+				if (firstSubmit < my.probStats[probId].earliestSubmit) {
+					my.probStats[probId].earliestSubmit = firstSubmit;
+				}
+				if (lastSubmit > my.probStats[probId].mostRecentSubmit) {
+					my.probStats[probId].mostRecentSubmit = lastSubmit;
+				}
+			}
+			
+			// Update the problem's record of how often each problem part
+			// was gotten right/wrong:
+			if (partsCorrectness !== null) {
+				for (var i=0; i<partsCorrectness.length; i++) {
+					if (partsCorrectness === '+') {
+						my.probStats[probId].partsCorrectness[i] += 1;
+					}
+				}
 			}
 			
 			// Update largest number of takers among all problems
@@ -626,6 +719,9 @@ function gradeCharter() {
 			if (my.probStats[probId].numAttempts > my.maxNumTakers) {
 				my.maxNumTakers = my.probStats[probId].numAttempts;
 			}
+			// More attempts at problems; update the total
+			// number of attempts:
+			my.totalAttempts += newNumAttempts;
 
 			// For this problem: update the number of
 			// learners who got the problem on the first try.
@@ -829,6 +925,26 @@ function gradeCharter() {
 		return Object.prototype.toString.call( maybeArr ) === '[object Array]';
 	}
 	
+	/*-----------------------
+	 * isValidDate
+	 *----------*/
+	
+	/**
+	 * Given an item, return true if the item is a valid
+	 * date object. Else return false.
+	 * 
+	 * :param maybeDate: the element to test.
+	 * :type maybeDate: <any>
+	 * :return true if maybeDate is a valide Date object, else false.
+	 * :rtype: bool
+	 */
+	
+	my.isValidDate = function(d) {
+	  if ( Object.prototype.toString.call(d) !== "[object Date]" )
+	    return false;
+	  return !isNaN(d.getTime());
+	}
+
 	/************************** Top-Level Statements ********************/
 	
 	// Make the object we'll actually return:

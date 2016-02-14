@@ -7,6 +7,9 @@ TODO:
   o Accept speed control
   o Accept pause control
   o Add total number of objects sent?
+  o When clicking Play button: maybe check whether
+      need to re-connect to websocket to resume. Needed
+      if disconnecting from the Web for a time.
 
 '''
 
