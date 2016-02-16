@@ -52,7 +52,8 @@
 /* Tooltip for when user clicks a gradebar: */
 .tooltip { position : absolute;
            /* background : rgba(166,137,59,0.3);*/  /* Light tan */
-	   background : rgb(166,137,59);
+	   /* background : rgb(166,137,59);*/       /* Dark brown */
+           background : rgb(194,224,176);         /* Light Green */
 	   width : auto;                          /* Expand to text width */
 	   height : auto;
 	   padding : 8px;
@@ -70,3 +71,14 @@
 	       pointer-events: none;
 	       outline : black solid 2px;
 	      }
+
+/* The problem-parts-specific table in tooltips: */
+
+.probCorrectTbl             { margin : auto;
+			      margin-top : 5px;
+			    }
+.probCorrectTbl, th, td     { border : 1px solid teal;
+			      border-collapse : collapse;
+			      padding : 5px;
+			    }
+

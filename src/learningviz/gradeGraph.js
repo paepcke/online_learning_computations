@@ -5,6 +5,7 @@
  *     o put %correctness for each problem part into tooltip table.
  *     o add deselecting of gradebar by clicking anywhere
  *     o speed control?
+ *     o in tooltip table: Part<n>: n needs to be 1-based
 
  * Receive tuples of grades from a WebSocket, and
  * visualize in a browser window. The viz will 
@@ -401,12 +402,37 @@ function gradeCharter() {
 	/*-----------------------
 	 * selectEl
 	 *----------*/
+	
+	/**
+	 * Given a mouse-down event. If mouse is over a gradear select it.
+	 * If another gradebar is currently selected, de-select that.
+	 * If mouse-down was over anything other than a gradebar, just
+	 * de-select my.selectedEl and set my.selectedEl to null
+	 * 
+	 * :param event: the mouse-down event over one gradebar
+	 * :type event: Event
+	 */
 
 	my.selectEl = function(event) {
 		var mouseX = event.pageX;
 		var mouseY = event.pageY;
-		var eventEl = event.target;
-		if (eventEl.className.baseVal !== 'gradebar') {
+		event.stopPropagation();
+		
+		// Mouse may have been clicked on the local- or global
+		// mean lines that lie on top of gradebars. For those
+		// cases, find the underlying gradebar. If mouse was
+		// clicked on the gradear directly, no harm done. If
+		// clicked outside of gradebar, null is returned:
+		
+		var eventEl = my.siblingGradeBar(event.target);
+
+		
+		// Clicking anywhere outside either a gradebar
+		// deselects and removes any possibly selected
+		// gradebar selection and the toolbar panel.
+		// Note that the toolbar panel catches mouse events
+		// on top if *it*:
+		if (eventEl == null) {
 			// Clicked outside of any grade bar;
 			// If one is selected, de-select it now:
 			my.deSelectEl(my.selectedEl);
@@ -448,28 +474,32 @@ function gradeCharter() {
 	
 	my.prepareTooltip = function(gradebar) {
 		var populateTooltip;
-		var probName = gradebar.id
-		var numAttempts = my.probStats[probName]
-		var firstSuccesses = my.probStats['num1stSuccesses']
-		var firstSuccessRate = my.probStats['successRate']
-		var mean1stSuccessRate = 0; //*****
+		var probId = gradebar.id
+		var totalNumAttempts = my.probStats[probId].numAttempts;
+		var firstSuccesses = my.probStats[probId].num1stSuccesses;
+		var firstSuccessRate = my.probStats[probId].successRate;
+		var partsStats = my.probStats[probId].partsCorrectness;
+		var partsTriesDistrib = my.probStats[probId].partsTriesDistrib;
+		var numParts = 'unknown';
+		if (typeof partsStats !== 'undefined') {
+			numParts = partsStats.length;
+		}
 		
 		// This version puts it to the upper right of the chart area:
-		var p1 = 90;
-		var p2 = 80;
-		var p3 = 100;
 		my.tooltip
 			.each(function() {
 				this.innerHTML = 
-				`<TABLE class=probCorrectTbl>
-					<tr>
-					<td>P1 %correct</td><td>P2 %correct</td><td>P3 %correct</td>
-					</tr>
-					<tr>
-					<td>${p1}%</td><td>${p2}%</td><td>${p3}%</td>
-					</tr>
-					</table>
-					`
+				`<span style="padding-right 100px">Problem:</span> ${probId}<br>
+				 Total number of attempts: ${totalNumAttempts}<br>
+				 First-try-success: ${firstSuccessRate == 100 ? 100 : firstSuccessRate.toPrecision(2)}%<br>
+				 Global first-try-success: ${100 * my.mean1stSuccessRate.toPrecision(2)}%<br> 
+				 Number of parts: ${numParts}<br>`;
+				 if (typeof partsStats !== 'undefined') {
+					this.innerHTML += `For each problem part: percent of correct solutions
+					                   and median required attempts:
+					                   ${my.prepareTooltipGradeStatsTable(partsStats, totalNumAttempts, partsTriesDistrib)}
+					                  `;
+				}
 			})
 			.style("width", function() {
 				return this.clientWidth + 1;
@@ -480,6 +510,81 @@ function gradeCharter() {
 			// Place top of tooltip panel just below the clock:
 			.style("top",  + my.clockBottom + "px")
 	}
+	
+	/*-----------------------
+	 * prep1ProbGradeStatsTable
+	 *----------*/
+	
+	/**
+	 * Prepares the HTML grades table that's part of a gradebar's tooltip.
+	 * Tooltips show details about one problem. One such detail is the table.
+	 * 
+	 * The table format is:
+	 *                                     Part1       Part2       Part3
+	 *  Percent completions                89%          3%         100%
+	 *  Median required tries               1            4           2
+	 *  
+	 * :param partsStats: array with each element containing the total number of
+	 *                    learners who have completed for one part of the problem.
+	 *                    The number is regardless of the number of tries: Eventually completed.
+	 * :type partsStats: [int]
+	 * :param numAttempts: total number of attempts on the problem, regardless of part and success.
+	 * :type numAttempts: int
+	 * :param attemptTriesDistrib: a Map with one key/value pair for each problem part. 
+	 *                             The key is the index of the problem part: part1 is 1, etc.
+	 *                             Values are arrays. Each element at index I of such an array holds
+	 *                             an integer, which is the count of learners who took I tries
+	 *                             to complete the Part-I of the problem.
+	 * :type attemptTriesDistrib: Map(int -> int)
+	 * :returns: HTML string that will display as the table.
+	 * :rtype: str   
+	 */
+	
+	my.prepareTooltipGradeStatsTable = function(partsStats, numAttempts, partsTriesDistrib) {
+		// Cause horizontal scrollbar if needed (overflow-x:auto). 
+		// Also add an initial column <th></th> to the header of the
+		// table to allow for the the explanatory left-most column:
+		var tableHtml = `<div class="probCorrectTblDiv" style="overflow-x:auto;"> 
+						   <table class="probCorrectTbl"> 
+		                     <tr> 
+		                       <th></th>`;
+
+		// Add html for the table header:
+		for (var i=0; i<partsStats.length; i++) {
+			tableHtml += `<th>Part${i}</th>`
+		}
+		// Close the header row:
+		tableHtml += `</tr>
+		                <tr>
+		                  <td>Percent completions (incl. >1 try)</td>`
+		// Add 1st-success percentages for each problem part:		                
+		for (var i=0; i<partsStats.length; i++) {
+			// Round to nearest percent before multiplying by 100:
+			var percentageCorrect = 100 * (partsStats[i]/numAttempts).toPrecision(2);
+			tableHtml += `<td>${percentageCorrect}%</td>`
+		}
+		tableHtml += `</tr>
+		                <tr>
+		                  <td>Median required tries</td>`;
+		// Add median of number of required tries for each part;
+        // The partsTriesDistrib is an array whose index corresponds
+        // to a number of tries, and the corresponding value is 
+		// how often that number of tries was required. Since
+		// zero tries is meaningless, the first element is always
+		// undefined; therefore the slice:
+        for (var distribArray of partsTriesDistrib.values()) {
+        	var median = my.median(distribArray.slice(1));
+        	// If nobody has gotten a part correct, median will be undefined:
+        	if (isNaN(median)) {
+        		median = "n/a";
+        	}
+        	tableHtml += `<td>${median}</td>\n`
+        }
+        tableHtml += `</tr></table></div>`;
+
+        return tableHtml;
+	}
+	
 	
 	/*-----------------------
 	 * deSelectEl
@@ -560,33 +665,7 @@ function gradeCharter() {
 					  my.brushTooltip.style('opacity', 1);
 				  })
 		 }
-		 
-		 //******* UPDATE Callout line
 	 }
-	
-	/*-----------------------
-	 * lineFunction
-	 *-------------*/
-	
-	/**
-	 * Func that takes an array of point coordinates,
-	 * and creates an SVG mini path language expression
-	 * to draw the line segments from point to point. 
-	 * Expected data format:
-	 *    [{"x" : 1, "y" : 10}, {"x" : 2, "y" : 5}]
-	 *    
-	 * Used to append paths to an svg container:
-	 * var lineGraph = svgContainer.append("path")
-     *                    .attr("d", lineFunction(lineData))
-     *                    .attr("stroke", "blue")
-     *                    .attr("stroke-width", 2)
-     *                    .attr("fill", "none");
-	 * 
-	 */
-	my.lineFunction = d3.svg.line()
-					    .x(function(d) {return d.x; })
-					    .y(function(d) {return d.y; })
-					    .interpolate("linear");
 	
 	/*-----------------------
 	 * updateDataRepAndScales
@@ -682,10 +761,25 @@ function gradeCharter() {
 				my.probStats[probId].successRate = 0;
 				my.probStats[probId].earliestSubmit = firstSubmit;
 				my.probStats[probId].mostRecentSubmit = lastSubmit;
+				// Is problem-parts results available?:
 				if (partsCorrectness !== null) {
 					// Make array the length of the number of parts
-					// this assignment has:
+					// this assignment has; we'll use it to keep
+					// count of how many learners have each part correct
+					// so far (regardless of how many tries they took:
 					my.probStats[probId].partsCorrectness = new Array(partsCorrectness.length).fill(0);
+					// Create data structure for keeping arrays of number of
+					// attempts it took to get each part correct (for median computation);
+					// Think histogram of attempts taken till success:
+					// {1 : [3,4,10],                  <-- 3 took 1 try, 4 took 2 tries, 10 took 3 tries
+					//  2 : [5,4,undefined,10,1,1,3]   <-- undefined: nobody took 3 tries.
+					// }
+					my.probStats[probId].partsTriesDistrib = new Map();
+					for (var i=0; i<partsCorrectness.length; i++) {
+						// Make the distrib Map keys correspond to the
+						// 1-based problem part number; therefore i+1:
+						my.probStats[probId].partsTriesDistrib.set(i+1, [])
+					}
 				}
 				my.probIdArr.push(probId);
 				// Remember the info about this new problem:
@@ -705,14 +799,33 @@ function gradeCharter() {
 			}
 			
 			// Update the problem's record of how often each problem part
-			// was gotten right/wrong:
+			// was gotten right so far, and account of how many tries
+			// were needed for each part (for median computation):
 			if (partsCorrectness !== null) {
 				for (var i=0; i<partsCorrectness.length; i++) {
 					if (partsCorrectness === '+') {
+
+						// One more learner got part i correct (no matter how many tries):
 						my.probStats[probId].partsCorrectness[i] += 1;
+
+						// For each problem part, update array whose positions track
+						// attempts: Pth position holds number of learners who got that problem
+						// part correct on Pth try; i.e. partsTriesDistrib is 1-based:
+						var probPartAttemptsHistory = my.probStats[probId].partsTriesDistrib.get(i+1)
+						// Has anyone before taken exactly this learner's number of attempts
+						// to get the part correct?
+						if (Number.isInteger(probPartAttemptsHistory[newNumAttempts])) {
+							// Yes. 
+							probPartAttemptsHistory[newNumAttempts] += 1;
+						} else {
+							// Nobody took this exact numbers of tries before; if assignment
+							// leaves holes, they will be set to undefined:
+							probPartAttemptsHistory[newNumAttempts] = 1;
+						}
 					}
-				}
+				}				
 			}
+			
 			
 			// Update largest number of takers among all problems
 			// (i.e. the highest Y-value:
@@ -728,11 +841,11 @@ function gradeCharter() {
 			// This also means updating the overall 1st-try-success
 			// average across all problems:
 			if (newNumAttempts == 1 && percentGrade == 100.0) {
-				var curSuccessRate = my.probStats[probId].successRate;
-				var successes = my.probStats[probId].num1stSuccesses += 1;
-				var newSuccessRate = my.probStats[probId].successRate = 
-					successes/my.probStats[probId].numAttempts;
-				// Update sum of all problems' success rates:
+				my.probStats[probId].num1stSuccesses += 1;
+				var successes = my.probStats[probId].num1stSuccesses; 
+				my.probStats[probId].successRate = 
+					100 * successes/my.probStats[probId].numAttempts;
+				// Update sum of all problems' successes:
 				my.sum1stSuccesses += 1;
 				
 				// Update the rate of 1st-time success across all problems:
@@ -945,7 +1058,83 @@ function gradeCharter() {
 	  return !isNaN(d.getTime());
 	}
 
+	/*-----------------------
+	 * median
+	 *----------*/
+	
+	my.median = function(values) {
+	
+	    values.sort( function(a,b) {return a - b;} );
+	    var half = Math.floor(values.length/2);
+	    if(values.length % 2) {
+	        return values[half];
+	    }
+	    else {
+	        return (values[half-1] + values[half]) / 2.0;
+	    }
+	}	
+	
+	/*-----------------------
+	 * pointInRect
+	 *----------*/
+	
+	/**
+	 * Given x/y, and a ClientRect object, return true if
+	 * point is within the rectangle.
+	 * 
+	 * :param pointX: x-coordinate of point
+	 * :type pointX: float
+	 * :param pointY: y-coordinate of point
+	 * :type pointY: float
+	 * :param rect: the client rectangle as returned by Element.getBoundingClientRect() 
+	 * :type rect: ClientRect
+	 */
+	
+	my.pointInRect = function(pointX, pointY, rect) {
+		if (pointX >= rect.left &&
+			pointX <= rect.right &&
+			pointY >= rect.top &&
+			pointY <= rect.bottom
+		) {
+			return true;
+		} else {
+			return false;
+		}
+	}
+	
+	
+	/*-----------------------
+	 * siblingGradeBar
+	 *----------*/
+	
+	/**
+	 * Given an element, return its sibling that is a gradebar,
+	 * if one exists, else return null.
+	 * 
+	 * :param element: the element whose gradebar-sibling to search for
+	 * :type element: <any>
+	 * :return the gradebar node, or null.
+	 */
+	
+	my.siblingGradeBar = function(element) {
+		try {
+			return (element.closest(".gradebarGroup")).querySelector('.gradebar');
+		} catch (typeError) {
+			var result = null;
+		}
+		return result;
+	}
+	
 	/************************** Top-Level Statements ********************/
+	
+	// Make click anywhere de-select gradebar if one is
+	// currently selected. Done in 'selectEl():
+	window.addEventListener('mousedown', function(event) {
+		if (!my.pointInRect(event.pageX, event.pageY, my.tooltip.node().getBoundingClientRect()) &&
+ 			my.selectedEl !== null) {
+			my.selectEl(event);
+		}
+	});
 	
 	// Make the object we'll actually return:
 	var that = {}
