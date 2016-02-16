@@ -33,10 +33,17 @@ from redis_bus_python.redis_lib.exceptions import ConnectionError
 
 class DataServer(object):
     '''
-    Given a query for datastage, post successive
-    messages to the SchoolBus for each result.
-    Send speed can be regulated.
-    NOTE: send speed faster if column names are
+    
+    Given either a CSV-filename or an MySQL query,
+    this server places the tuples on the SchoolBus
+    at controllable speed. (The MySQL query part is
+    not yet implemented.)
+    
+    A column header can be specified or be the first
+    line in a CSV file. If none is specified, reasonable
+    column header names will be created.
+
+    NOTE: send speed is faster if column names are
           provided, either in a CSV file's first
           line (for CSVDataServer), or explicitly
           as a string array (for MySQLDataServer).
@@ -51,7 +58,27 @@ class DataServer(object):
        {"cmd" : "stop"}
        {"cmd" : "changeSpeed", "arg" : "<fractionalSeconds>"}
        
-    A stop message will exit the server!
+    A stop message will exit the server! Applications who provide
+    GUI access to the stop message should warn their users.
+    
+    A config file can be used to provide key/values in which keys
+    are names for datasets, and values are either an absolute or
+    relative path to a corresponding CSV file, or a MySQL query.
+    Example config file content:
+        [GradeFiles]
+        compilers : /home/me/data/compilerGrades.csv
+        databases : ../theDbGrades.csv
+        statistics : $HOME/Data/Grades/stats.csv
+        artCourse=SELECT * FROM foo WHERE ...
+        
+    Both ':" and "=" are suported as separator, but for "=" no space
+    is permitted. See Python ConfigParser module for details. 
+    
+    Various command line option allow some customization. 
+    
+    If this server is to be used with with the real-time assignment
+    grade demo, see gradeGraph.js header for details of expected
+    schema. 
     
     '''
 

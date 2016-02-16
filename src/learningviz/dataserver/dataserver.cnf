@@ -1,0 +1,3 @@
+[GradeFiles]
+compilers : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs140Grades.csv
+databases : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs145Grades.csv

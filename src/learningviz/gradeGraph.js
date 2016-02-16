@@ -490,9 +490,9 @@ function gradeCharter() {
 			.each(function() {
 				this.innerHTML = 
 				`<span style="padding-right 100px">Problem:</span> ${probId}<br>
-				 Total number of attempts: ${totalNumAttempts}<br>
-				 First-try-success: ${firstSuccessRate == 100 ? 100 : firstSuccessRate.toPrecision(2)}%<br>
-				 Global first-try-success: ${100 * my.mean1stSuccessRate.toPrecision(2)}%<br> 
+				 Total number of attempts: <span id="numAttempts">${totalNumAttempts}</span><br>
+				 First-try-success: <span id="localSucRate">${firstSuccessRate == 100 ? 100 : firstSuccessRate.toPrecision(2)}</span>%<br>
+				 Global first-try-success: <span id="globalSucRate">${100 * my.mean1stSuccessRate.toPrecision(2)}</span>%<br> 
 				 Number of parts: ${numParts}<br>`;
 				 if (typeof partsStats !== 'undefined') {
 					this.innerHTML += `For each problem part: percent of correct solutions
@@ -561,7 +561,7 @@ function gradeCharter() {
 		for (var i=0; i<partsStats.length; i++) {
 			// Round to nearest percent before multiplying by 100:
 			var percentageCorrect = 100 * (partsStats[i]/numAttempts).toPrecision(2);
-			tableHtml += `<td>${percentageCorrect}%</td>`
+			tableHtml += `<td><span id="percCorr">${percentageCorrect}%</span></td>`
 		}
 		tableHtml += `</tr>
 		                <tr>
@@ -578,7 +578,7 @@ function gradeCharter() {
         	if (isNaN(median)) {
         		median = "n/a";
         	}
-        	tableHtml += `<td>${median}</td>\n`
+        	tableHtml += `<td><span id="median">${median}</span></td>\n`
         }
         tableHtml += `</tr></table></div>`;
 
