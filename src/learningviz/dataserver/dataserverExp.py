@@ -163,8 +163,13 @@ class DataServer(object):
         else:
             self.cnf_file_path = configFile
         
+        # The main section may have checked the config parser
+        # already, but we do it again:
         if not (os.path.isfile(self.cnf_file_path) and os.access(self.cnf_file_path, os.R_OK)):
                 raise IOError('Dataserver config file %s does not exist.')       
+
+        self.conf_parser = ConfigParser.ConfigParser()
+        self.conf_parser.read(self.cnf_file_path)
 
         try:
             self.bus = BusAdapter(host=redis_server)
@@ -178,11 +183,8 @@ class DataServer(object):
         # commands:   
         self.msg_queues = {}
 
-        # Dict to map streamId --> responseTopic,
-        # where responseTopic is the topic to which messages
-        # for the client of the streamId's stream are to be
-        # sent. The client is expected to listen to that topic:
-        self.response_topics = {}
+        # Dict to map streamId --> thread,
+        self.threads = {}
         
         # Listen to messages from the bus that control
         # how this server functions:
@@ -233,7 +235,11 @@ class DataServer(object):
                 self.returnError(stream_id, err_msg)
                 return
         
-        
+        if cmd == 'play':
+            # In this context, play is the same as resuming
+            # from a pause; if not currently paused, no effect:
+            cmd_queue.put('resume')
+            self.logInfo('Play stream %s' % self.topic)
         if cmd == 'pause':
             cmd_queue.put('pause')
             self.logInfo('Pausing %s' % self.topic)
@@ -270,7 +276,14 @@ class DataServer(object):
             # create an empty response message, and extracting the
             # destination topic from it:
             
-            stream_id = self.bus.makeResponseMsg(controlMsg, '').topicName() 
+            # Prepare the response message back to the client.
+            # The topicName of the response message will be set
+            # to the proper response topic, based on the incoming
+            # msg's msg ID. We pass in the client's request msg
+            # for this new stream:
+            
+            response_msg = self.bus.makeResponseMsg(controlMsg, '').topicName()
+            stream_id    = response_msg.topicName() 
             
             # Code earlier already verified that source_id was provided
             # in the request message:
@@ -284,21 +297,27 @@ class DataServer(object):
             # will be fed to the stream-sending thread:
             cmd_queue = Queue()
             self.msg_queues[stream_id] = cmd_queue
-            self.response_topics[stream_id] = 
 
             # Create a new thread to feed the stream back to the client:
             try:
-                new_thread = OneStreamServer(cmd_queue, source_id, self.conf_parser)
+                new_thread = OneStreamServer(stream_id, cmd_queue, source_id, self.conf_parser)
             except (ValueError, IOError) as e:
                 self.logError(`e`)
                 self.returnError(stream_id, `e`)
-            
+                return
+            self.threads[stream_id] = new_thread
+            # Pause the stream so it won't start till client sens
+            # a 'play' command:
+            cmd_queue.put('pause')
+            new_thread.start()
+            response_msg.content = '{"streamId" : stream_id}'
+            self.bus.publish(response_msg)
+            return
+
         else:
             # Unrecognized command:
             self.logError('Command not recognized in message %s' % str(controlMsg))
             return
-
-
 
     def returnError(self, streamId, errorMsg):
         '''
@@ -310,17 +329,14 @@ class DataServer(object):
            {"error" : "<errorMsg>"}
         
         :param streamId: identifier of the stream about which the error message is being sent.
+                         this ID is also used as the response channel topic back to the client.
         :type inMsg: str
         :param errorMsg: value of the outgoing message's 'content' JSON "error" field. 
         :type errorMsg: str
         '''
         
-        response_topic = self.response_topics.get(streamId, None)
-        if response_topic None:
-            self.loogErr("Unknown streamId %s passed to returnError." % streamId)
-            return
         msg = BusMessage()
-        msg.topic = response_topic
+        msg.topic = streamId
         msg.content = '{"error" : %s)' % errorMsg
         self.bus.publish(msg)
 
@@ -363,9 +379,32 @@ class DataServer(object):
 
 class OneStreamServer(threading.Thread):
     
-    def __init__(self, cmd_queue, source_id, conf_parser):
+    def __init__(self, stream_id, cmd_queue, source_id, conf_parser):
+        '''
+        Thread to serve out one stream to one bus client.
+        Communicate with this thread via cmd_queue. Given
+        a source_id and an initialized ConfigParser instance,
+        find the CSV file to stream to the bus, or the MySQL
+        query whose results to stream. The stream_id is the
+        id under which the main thread finds this thread.
+        
+        :param stream_id: identifier for this thread
+        :type stream_id: str
+        :param cmd_queue: queue through which main thread sends 
+               client requests that control the stream.
+        :type cmd_queue: Queue
+        :param source_id: key into the configuration file
+        :type source_id: str
+        :param conf_parser: initialized configuration parser with 
+              values containing CSV file paths or MySQL queries
+        :type conf_parser: ConfigParser
+        '''
+        
+        super(OneStreamServer, self).__init__()
+        
         self.cmd_queue = cmd_queue
         self.source_id = source_id
+        self.stream_id = stream_id
         self.conf_parser = conf_parser
         self.pausing   = False
         self.stopping  = False
@@ -376,6 +415,11 @@ class OneStreamServer(threading.Thread):
         
         self.source_iterator = self.get_source_iterator()
         
+    @property
+    def stream_id(self):
+        '''Thread's identifier'''
+        return self.stream_id
+
     def get_source_iterator(self):
         '''
         Given self.source_id and a ConfigParser instance in self.config_parser,
@@ -605,6 +649,11 @@ class CSVDataServer(DataServer):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]), 
                                      formatter_class=argparse.RawTextHelpFormatter)
+    
+    parser.add_argument('-c', '--config',
+                        dest='config_file',
+                        help='Configuration file; default is ./dataserver.cnf',
+                        default=os.path.join(os.path.dirname(__file__)), 'dataserver.cnf')
     parser.add_argument('-s', '--host',
                         dest='host', 
                         help="For mysql src: fully qualified db host name.",
@@ -631,29 +680,6 @@ if __name__ == '__main__':
                         dest='redis_server', 
                         help="Name of machine that serves the bus (redis server); default localhost.",
                         default='localhost')
-    parser.add_argument('-t', '--type',
-                        metavar='csvOrDb',
-                        dest='csvOrDb',
-                        choices=['csv', 'mysql'],
-                        default='csv',
-                        help="Service type: 'csv' file or 'mysql' database; required.",
-                        )
-    parser.add_argument('-c', '--cols1stline',
-                        dest='colsIn1stLine',
-                        choices=['true', 'false'],
-                        default='false', 
-                        help="For csv src: true/false whether 1st line contains col names.",
-                        )
-    parser.add_argument('-m', '--maxmsgs',
-                        dest='max_to_send',
-                        type=int,
-                        help="Maximum number of messages to send. Default: all (a.k.a. -1)",
-                        default='-1')
-    parser.add_argument('-e', '--period',
-                        dest='period',
-                        type=float,
-                        help="Fractional seconds to wait between data batches. Default: %s" % DataServer.INTER_BATCH_DELAY,
-                        default=DataServer.INTER_BATCH_DELAY)
     parser.add_argument('-l', '--logFile', 
                         help='Fully qualified log file name to which info and error messages \n' +\
                              'are directed. Default: stdout.',
@@ -662,37 +688,29 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--verbose', 
                         help='Print operational info to log.', 
                         dest='verbose',
-                        action='store_true');
-    parser.add_argument('fileOrQuery',
-                        help="For mysql src: query to run; for csv: file name.",
-                       )
-    parser.add_argument('topic',
-                        help="Topic to which to publish.",
-                       )
-    parser.add_argument('colnames',
-                        nargs='*',
-                        metavar='columnnames', 
-                        help="Optional list of column names; for CSV may be provided in 1st line.",
-                       )
+                        action='store_true')
+    parser.add_argument('--period',
+                        dest='period',
+                        help="Number fractional seconds to wait between each message. Default is %s" % DataServer.INTER_BATCH_DELAY,
+                        default=DataServer.INTER_BATCH_DELAY)
 
     args = parser.parse_args();
 
-    # Are we to serve CSV file, or a MySQL query:
-    src_type = args.csvOrDb
-    if src_type == 'csv':
-        filename = args.fileOrQuery
-    else:
-        query = args.fileOrQuery
-    colnames = args.colnames
-    
     redis_server = args.redis_server
-    
-    max_to_send = args.max_to_send
     
     DataServer.INTER_BATCH_DELAY = args.period
         
-    # If serving a database query: Get all the security done:
-    if src_type == 'db':
+    config_parser = ConfigParser.ConfigParser()
+    config_file = args.config_file
+    # If serving any database queries: Get all the security done:
+    if not (os.path.isfile(config_file) and os.access(config_file, os.R_OK)):
+            raise IOError('Dataserver config file %s does not exist or is not readable.' % config_file)       
+
+    config_parser.read(config_file)
+    
+    # If we are to serve out at least on MySQL query,
+    # get the security taken care of:
+    if config_parser.has_section('MySQLQueries'):
         host = args.host
         port = args.port
         db   = args.db
@@ -725,36 +743,21 @@ if __name__ == '__main__':
                     # No .ssh subdir of user's home, or no mysql inside .ssh:
                     pwd = None
         # We now have all we need to serve a MySQL query
-    else:
-        # We are to serve a CSV file; does it exist?
-        try:
-            with open(filename, 'r') as fd:
-                pass
-        except IOError:
-            print("Could not open CSV file %s" % filename)
-            sys.exit()
-        colsIn1stLine = args.colsIn1stLine
-            
-    if src_type == 'csv':
-        server = CSVDataServer(filename,
-                               args.topic,
-                               first_line_has_colnames=colsIn1stLine,
-                               redis_server=redis_server,
-                               colnames=colnames,
-                               max_to_send=max_to_send,
-                               logFile=args.logFile,
-                               logLevel=logging.DEBUG if args.verbose else logging.INFO)
-    else:
-        server = MySQLDataServer(query,
-                                 args.topic, 
-                                 host=host,
-                                 port=port,
-                                 user=user,
-                                 pwd=pwd,
-                                 db=db,
-                                 redis_server=redis_server,
-                                 colname_arr=colnames,
-                                 max_to_send=max_to_send,
-                                 logFile=args.logFile,
-                                 logLevel=logging.DEBUG if args.verbose else logging.INFO
-                                 )
+        server = DataServer(redis_server=redis_server, 
+                            configFile=None, 
+                            logFile=None, 
+                            logLevel=logging.INFO)
+        
+#         server = MySQLDataServer(query,
+#                                  args.topic, 
+#                                  host=host,
+#                                  port=port,
+#                                  user=user,
+#                                  pwd=pwd,
+#                                  db=db,
+#                                  redis_server=redis_server,
+#                                  colname_arr=colnames,
+#                                  max_to_send=max_to_send,
+#                                  logFile=args.logFile,
+#                                  logLevel=logging.DEBUG if args.verbose else logging.INFO
+#                                  )
