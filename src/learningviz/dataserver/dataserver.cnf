@@ -1,3 +1,8 @@
-[GradeFiles]
+[CSVFiles]
 compilers : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs140Grades.csv
 databases : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs145Grades.csv
+
+[MySQLQueries]
+
+[ColumnNames]
+databases : 0,course,learner,percentGrade,attempts,firstSubmit,lastSubmit,probId,partsCorrectness
