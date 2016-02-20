@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import sys
+from threading import Event, current_thread
 import threading
 import time
 
@@ -57,23 +58,54 @@ class DataServer(object):
     that cause it to pause, resume, stop, and change speed. The content
     field of the associated messages are:
     
-       {"cmd" : "play", streamId : "a39fc5b440dd4be1b02a1a05fd167e68"}
+       {"cmd" : "initStream", "sourceId" : "<sourceId>"}
+       {"cmd" : "play", "streamId" : "<streamId>"}
        {"cmd" : "pause", streamId : "a39fc5b440dd4be1b02a1a05fd167e68"}
        {"cmd" : "resume", streamId : "a39fc5b440dd4be1b02a1a05fd167e68"}
        {"cmd" : "stop", streamId : "a39fc5b440dd4be1b02a1a05fd167e68"}
        {"cmd" : "restart", streamId : "a39fc5b440dd4be1b02a1a05fd167e68"}
        {"cmd" : "changeSpeed", streamId : "a39fc5b440dd4be1b02a1a05fd167e68", "arg" : "<fractionalSeconds>"}
-       {"cmd" : "newStream", "arg" : "<sourceId>"}
+       {"cmd" : "listSources"}
        
     A stop message will exit the server! Applications who provide
     GUI access to the stop message should warn their users.
+        
+    Command initStream:
+     
+    the sourceId must be a key that identifies a
+    data source, such as a CSV file to this server. These keys
+    are provided to this server via a config file, and available via
+    command listSources. The protocol for requesting a new stream uses 
+    the SchoolBus callback feature. The details are taken care of
+    by the publish() methods of the BusAdapter implementations: 
+    redis_bus.py for Python, and js_schoolbus_bride.js for JavaScript. 
+      
+        - client creates the unique id <msgId> for a request msg to 
+          this server.
+        - client subscribes to topic "tmp.<msgId>"
+        - client publishes newStream request to topic dataserverControl.
+        - server publishes a response message to topic "tmp.<msgId>"
+             The 'content' field of that response message will be:
+             
+                    {"streamId" : <uuidStr>}
+               
+          The streamId will be the topic to which this server will publish
+          the data. That same streamId must also be included in any subsequent
+          request by the client that references the new stream. See cmd 
+          summary above.
+          
+        - client publishes a play message without the sourceId argument
+          to 'dataserverControl'.    
+    
+    Command play: 
+    
+    If the stream with the given streamId is currently paused, 
+    the effect is the same as the resume command. If a stream
+    was started with initStream, the play command will start the
+    data flowing.
     
     Command changeSpeed takes as argument the transmission period,
     i.e. the number of fractional seconds between each transmission.  
-    
-    Command newStream's argument is a key that identifies a
-    data source, such as a CSV file to this server. These keys
-    are provided to this server via a config file. 
     
     The config file provides key/values in which keys
     are names for datasets, and values are either an absolute or
@@ -84,34 +116,20 @@ class DataServer(object):
         compilers : /home/me/data/compilerGrades.csv
         databases : ../theDbGrades.csv
         statistics : $HOME/Data/Grades/stats.csv
-        artCourse=SELECT * FROM foo WHERE ...
         
         [MySQLQueries]
+        artCourse=SELECT * FROM foo WHERE ...
             ...
+        
+        [InfoText]
+        compilers : Grades for ompiler course Spring 2014
+        databases: Grades for original un-partitioned database course 
         
     Both ':" and "=" are suported as separator, but for "=" no space
     is permitted. See Python ConfigParser module for details. 
     
-    The protocol for requesting a new stream uses the SchoolBus callback
-    feature:
-      
-        - client creates the unique id <msgId> for a request msg to 
-          this server.
-        - client subscribes to topic "tmp.<msgId>"
-        - client publishes newStream request to topic dataserverControl.
-        - server publishes a response message to a topic "tmp.<msgId>"
-             The 'content' field of that response message will be:
-             
-                    {"streamId" : <uuidStr>}
-               
-          The streamId will be the topic to which this server will publish
-          the data. That same streamId must also be included in any subsequent
-          request by the client that references the new stream. See cmd 
-          summary above.
-          
-        - client publishes a play message to 'dataserverControl'.    
-    
-    Subsequent status or error messages from the data server to the client will
+        
+    Satus or error messages from the data server to the client will
     be published as error messages to tmp.<msgId>. In particular: when a stream
     has ended, a message with content:
 
@@ -129,8 +147,9 @@ class DataServer(object):
     # Topic on which this server listens for control messages,
     # such as pause, resume, newSpeed, and stop:
     
-    SERVER_CONTROL_TOPIC = "dataserverControl"
+    SERVER_CONTROL_TOPIC = "datapumpControl"
     INTER_BATCH_DELAY    = 2 # second
+    STREAM_THREAD_SHUTDOWN_TIMEOUT = 1 # Second
 
     mysql_default_port = 3306
     mysql_default_host = '127.0.0.1'
@@ -155,6 +174,10 @@ class DataServer(object):
         '''
         super(DataServer,self).__init__()
         self.cnf_file_path = configFile
+        
+        #***********
+        print("Current thread: %s" % current_thread())
+        #***********
 
         self.setupLogging(logLevel, logFile)   
 
@@ -170,6 +193,9 @@ class DataServer(object):
 
         self.conf_parser = ConfigParser.ConfigParser()
         self.conf_parser.read(self.cnf_file_path)
+
+        # Whether cnt-c has shut us down:
+        self.shutdown = False
 
         try:
             self.bus = BusAdapter(host=redis_server)
@@ -190,15 +216,51 @@ class DataServer(object):
         # how this server functions:
         self.bus.subscribeToTopic(DataServer.SERVER_CONTROL_TOPIC, functools.partial(self.service_control_msgs))
         
+        self.logInfo('Data pump now listening for requests on SchoolBus.')
+        
+        # Hang till cnt-C calls shutdown():
+        while True:
+            time.sleep(1)
+            if self.shutdown:
+                return
+            # Check for streams that delivered all
+            # their data and clean up after them:
+            for (stream_id, one_thread) in self.threads.items():
+                if not one_thread.isAlive():
+                    del self.msg_queues[stream_id]
+                    del self.threads[stream_id]
+
+    def shutdown(self):
+        # Stop all running streams:
+        for (stream_id, one_thread) in self.threads.items():
+            self.logInfo('Stopping stream %s' % stream_id)
+            one_thread.stop()
+            one_thread.join(DataServer.STREAM_THREAD_SHUTDOWN_TIMEOUT)
+            # If thread still alive, the stop failed:
+            if one_thread.is_alive():
+                self.logError('Could not stop stream %s' % stream_id)
+            else:
+                self.logInfo('Stream %s stopped successfully' % stream_id)
+
+        # Shut down the bus adapter:        
+        try:
+            self.bus.close()
+        except RuntimeError as e:
+            self.logError('Problem while shutting down BusAdapter: %s' % `e`)
+            
+        # Release completion of __init__() method and thereby closure of main thread:
+        self.shutdown = True
+                
     def service_control_msgs(self, controlMsg):
         '''
+        Note: Called from a different thread: BusAdapter.
         Receive function control messages from the bus. Recognized
         commands are
+            - play
             - pause
             - resume
             - stop
             - changeSpeed <newSpeedInFractionalSeconds>
-            - startStream
         
         :param controlMsg: Message with content of the form: {"cmd" : "<commandName">", "arg" : "<argIfNeeded>"}
         :type controlMsg: BusMessage
@@ -222,16 +284,16 @@ class DataServer(object):
         
         # The only command for which client does not need to
         # pass a stream ID is for a new-stream request:
-        if stream_id is None and cmd != 'newStream':
-            self.logErr('Received command %s without the required streamId field.' % cmd)
+        if stream_id is None and cmd != 'initStream':
+            self.logError('Received command %s without the required streamId field.' % cmd)
             return
-        else:
+        elif not stream_id is None:
             # Got a stream ID for a command that requires one. 
             # But do we recognize that stream id?
             cmd_queue = self.msg_queues.get(stream_id, None)
             if cmd_queue is None:
-                err_msg = 'Command % with unrecognized stream ID %s.' % (cmd, stream_id)
-                self.logErr(err_msg)
+                err_msg = 'Command %s with unrecognized stream ID %s.' % (cmd, stream_id)
+                self.logError(err_msg)
                 self.returnError(stream_id, err_msg)
                 return
         
@@ -269,33 +331,27 @@ class DataServer(object):
             self.logInfo('Received restart for streamId %s' % stream_id)
             return
          
-        elif cmd == 'newStream':
+        elif cmd == 'initStream':
             
-            # Derive the topic to use for response message to the 
-            # requesting client. Do this having the bus machinery
-            # create an empty response message, and extracting the
-            # destination topic from it:
+            # Prepare the response message back to the client:
+            # Make a BusMessage for the response. That response
+            # message will have a unique message identifier. We
+            # will use it as the streamId for this new stream going forward.  
             
-            # Prepare the response message back to the client.
-            # The topicName of the response message will be set
-            # to the proper response topic, based on the incoming
-            # msg's msg ID. We pass in the client's request msg
-            # for this new stream:
-            
-            response_msg = self.bus.makeResponseMsg(controlMsg, '').topicName()
-            stream_id    = response_msg.topicName() 
+            response_msg = self.bus.makeResponseMsg(controlMsg, '')
+            stream_id    = response_msg.topicName 
             
             # Code earlier already verified that source_id was provided
             # in the request message:
-            source_id = cntrl_dict.get('source_id', None)
+            source_id = cntrl_dict.get('sourceId', None)
             if source_id is None:
                 err_msg = 'New stream request without the required source_id.'
-                self.logErr(err_msg)
+                self.logError(err_msg)
                 self.returnError(stream_id, err_msg)
                 return
             # Create a queue into which later incoming client requests
             # will be fed to the stream-sending thread:
-            cmd_queue = Queue()
+            cmd_queue = Queue.Queue()
             self.msg_queues[stream_id] = cmd_queue
 
             # Create a new thread to feed the stream back to the client:
@@ -305,11 +361,16 @@ class DataServer(object):
                 self.logError(`e`)
                 self.returnError(stream_id, `e`)
                 return
+            # Remember the thread keyed by the stream_id that
+            # will be included in all subsequent commands from the
+            # client:
             self.threads[stream_id] = new_thread
-            # Pause the stream so it won't start till client sens
+            # Pause the stream so it won't start till client sends
             # a 'play' command:
             cmd_queue.put('pause')
             new_thread.start()
+            # Finally, initialize the content field of the response
+            # message:
             response_msg.content = '{"streamId" : stream_id}'
             self.bus.publish(response_msg)
             return
@@ -336,7 +397,7 @@ class DataServer(object):
         '''
         
         msg = BusMessage()
-        msg.topic = streamId
+        msg.topicName = streamId
         msg.content = '{"error" : %s)' % errorMsg
         self.bus.publish(msg)
 
@@ -398,6 +459,7 @@ class OneStreamServer(threading.Thread):
         :param conf_parser: initialized configuration parser with 
               values containing CSV file paths or MySQL queries
         :type conf_parser: ConfigParser
+        :param parent: main thread
         '''
         
         super(OneStreamServer, self).__init__()
@@ -418,7 +480,15 @@ class OneStreamServer(threading.Thread):
     @property
     def stream_id(self):
         '''Thread's identifier'''
-        return self.stream_id
+        return self._stream_id
+
+    @stream_id.setter
+    def stream_id(self, val):
+        self._stream_id = val
+
+    def stop(self):
+        # Pretend the client issued a stop command:
+        self.cmd_queue.put_nowait('stop')
 
     def get_source_iterator(self):
         '''
@@ -445,7 +515,7 @@ class OneStreamServer(threading.Thread):
                 pass
         # Make sure you catch ValueError when creating a new OneStreamServer thread instance:
         try:
-            csv_file_name = self.conf_parser.get('CSVFiles', self.source_id)
+            csv_file_name = os.path.expanduser(os.path.expandvars(self.conf_parser.get('CSVFiles', self.source_id)))
         except ConfigParser.NoSectionError:
             raise ValueError('Configuration file does not contain a CSVFiles section.')
         except ConfigParser.NoOptionError:
@@ -490,7 +560,7 @@ class OneStreamServer(threading.Thread):
                         # the queue sent a string 'changeSpeed,<fractionalSeconds>':
                         new_speed = cmd.split(',')[1]
                         if type(new_speed) != 'float' and type(new_speed) != 'int':
-                            self.logErr('The inter_batch_delay parameter for send_all must be float, or int; was %s' % str(new_speed))
+                            self.logError('The inter_batch_delay parameter for send_all must be float, or int; was %s' % str(new_speed))
                             # Ignore the command
                         else:
                             self.inter_batch_delay = new_speed
@@ -504,11 +574,11 @@ class OneStreamServer(threading.Thread):
                 if len(info) == 0:
                     # Empty line in CSV file:
                     continue
-                if max_to_send > -1 and row_count >= max_to_send:
+                if self.max_to_send > -1 and row_count >= self.max_to_send:
                     return                
                 tuple_dict_batch.append(self.make_data_dict(info))
                 if len(tuple_dict_batch) >= self.batch_size or\
-                    len(tuple_dict_batch) + row_count >= max_to_send:
+                    len(tuple_dict_batch) + row_count >= self.max_to_send:
                     
                     if self.pausing:
                         # Wait for 'resume' or 'stop' message:
@@ -582,69 +652,83 @@ class OneStreamServer(threading.Thread):
             existing_colnames.append('col-%s' % str(i))
         return existing_colnames
 
-class MySQLDataServer(DataServer):
+# The following subclasses are no longer used, but 
+# I didn't have the heart to take them out yet. Also,
+# Let's wait till the MySQL part is implemented:
 
-    def __init__(self, 
-                 query,
-                 topic,
-                 host=DataServer.mysql_default_host, 
-                 port=DataServer.mysql_default_port, 
-                 user=DataServer.mysql_default_user,
-                 pwd=DataServer.mysql_default_pwd, 
-                 db=DataServer.mysql_default_db, 
-                 redis_server='localhost',
-                 colname_arr=[],
-                 max_to_send=-1,
-                 logFile=None,
-                 logLevel=logging.INFO                 
-                 ):
-        '''
-        Constructor
-        '''
-        # Super throws 'TypeError: must be type, not str'
-        # So need to use explicit superclass call...odd. 
-        #super('CSVDataServer', self).__init__(topic)
-        #super('MySQLDataServer', self).__init__(topic)
-        DataServer.__init__(self, topic, logFile=logFile, logLevel=logLevel)
-        self.db = MySQLDB(host=host, port=port, user=user, passwd=pwd, db=db, redis_server=redis_server)
-        # Column name array to superclass instance:
-        self.colnames = colname_arr
-        self.it = self.db.query(query)
-        self.send_all(max_to_send=max_to_send)
-        
-class CSVDataServer(DataServer):
-    
-    def __init__(self, 
-                 fileName,
-                 topic,
-                 first_line_has_colnames=False,
-                 redis_server='localhost',
-                 colnames=[],
-                 max_to_send=-1,
-                 logFile=None,
-                 logLevel=logging.INFO                 
-                 ):
-        # Super throws 'TypeError: must be type, not str'
-        # So need to use explicit superclass call...odd. 
-        #super('CSVDataServer', self).__init__(topic)
-        DataServer.__init__(self, topic, redis_server=redis_server, logFile=logFile, logLevel=logLevel)
-                
-        fd = open(fileName, 'r')
-        csvreader = csv.reader(fd)
-        # Explicitly provided colnames have precedence
-        # over colnames in first line of file:
-        if len(colnames) > 0:
-            self.colnames = colnames
-            # Trash first line in file if appropriate:
-            if first_line_has_colnames:
-                csvreader.next()
-        elif first_line_has_colnames:
-            # No explicit col names, but file has them;
-            # send column name array to superclass instance var:
-            self.colnames = csvreader.next()
-        # ... else superclass will invent col names.
-        self.it = csvreader
-        self.send_all(max_to_send=max_to_send)
+# class MySQLDataServer(DataServer):
+# 
+#     def __init__(self, 
+#                  query,
+#                  topic,
+#                  host=DataServer.mysql_default_host, 
+#                  port=DataServer.mysql_default_port, 
+#                  user=DataServer.mysql_default_user,
+#                  pwd=DataServer.mysql_default_pwd, 
+#                  db=DataServer.mysql_default_db, 
+#                  redis_server='localhost',
+#                  colname_arr=[],
+#                  max_to_send=-1,
+#                  logFile=None,
+#                  logLevel=logging.INFO                 
+#                  ):
+#         '''
+#         Constructor
+#         '''
+#         # Super throws 'TypeError: must be type, not str'
+#         # So need to use explicit superclass call...odd. 
+#         #super('CSVDataServer', self).__init__(topic)
+#         #super('MySQLDataServer', self).__init__(topic)
+#         DataServer.__init__(self, topic, logFile=logFile, logLevel=logLevel)
+#         self.db = MySQLDB(host=host, port=port, user=user, passwd=pwd, db=db, redis_server=redis_server)
+#         # Column name array to superclass instance:
+#         self.colnames = colname_arr
+#         self.it = self.db.query(query)
+#         self.send_all(max_to_send=max_to_send)
+#         
+# class CSVDataServer(DataServer):
+#     
+#     def __init__(self, 
+#                  fileName,
+#                  topic,
+#                  first_line_has_colnames=False,
+#                  redis_server='localhost',
+#                  colnames=[],
+#                  max_to_send=-1,
+#                  logFile=None,
+#                  logLevel=logging.INFO                 
+#                  ):
+#         # Super throws 'TypeError: must be type, not str'
+#         # So need to use explicit superclass call...odd. 
+#         #super('CSVDataServer', self).__init__(topic)
+#         DataServer.__init__(self, topic, redis_server=redis_server, logFile=logFile, logLevel=logLevel)
+#                 
+#         fd = open(fileName, 'r')
+#         csvreader = csv.reader(fd)
+#         # Explicitly provided colnames have precedence
+#         # over colnames in first line of file:
+#         if len(colnames) > 0:
+#             self.colnames = colnames
+#             # Trash first line in file if appropriate:
+#             if first_line_has_colnames:
+#                 csvreader.next()
+#         elif first_line_has_colnames:
+#             # No explicit col names, but file has them;
+#             # send column name array to superclass instance var:
+#             self.colnames = csvreader.next()
+#         # ... else superclass will invent col names.
+#         self.it = csvreader
+#         self.send_all(max_to_send=max_to_send)
+
+
+# Note: function not method:
+def sig_handler(sig, frame):
+    # Close the SchoolBus, which will take down
+    # the main thread after it shut down any
+    # running streams:
+    print('Shutting down data pump ...')
+    server.shutdown()
+
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]), 
@@ -653,7 +737,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--config',
                         dest='config_file',
                         help='Configuration file; default is ./dataserver.cnf',
-                        default=os.path.join(os.path.dirname(__file__)), 'dataserver.cnf')
+                        default=os.path.join(os.path.dirname(__file__), 'dataserver.cnf'))
     parser.add_argument('-s', '--host',
                         dest='host', 
                         help="For mysql src: fully qualified db host name.",

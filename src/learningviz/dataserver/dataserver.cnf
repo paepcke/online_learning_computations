@@ -4,5 +4,11 @@ databases : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs145Grades.c
 
 [MySQLQueries]
 
+
+[InfoText]
+compilers : Grades for ompiler course Spring 2014
+databases: Grades for original un-partitioned database course
+
+
 [ColumnNames]
 databases : 0,course,learner,percentGrade,attempts,firstSubmit,lastSubmit,probId,partsCorrectness
