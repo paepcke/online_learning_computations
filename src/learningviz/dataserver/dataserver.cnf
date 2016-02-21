@@ -1,14 +1,36 @@
+# Configuration file for the data pump. Each data source---CSV file
+# or query---is identified with a source id, such as 'compilers'. The
+# source id is arbitrary, but must be (made) known to requesting
+# clients for issuing a initStream request.
+
+# The CSVFiles section: specifies fully qualified paths to the file name
+# of each CSV source.
+
+# The MySQLQueries section will contain sources that are query results.
+
+# The ColumnNames section specifies column names for CSV-file sources if
+# the names are not listed in the first line of the file.
+
+# The InfoText section is used when clients request source info via the
+# listSources request.
+
 [CSVFiles]
 compilers : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs140Grades.csv
 databases : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs145Grades.csv
 
 [MySQLQueries]
 
+[ColumnNames]
+# An entry here is needed if and only if colnames are not in first line of CSV file.
+# If an entry for this source id is present, it is assumed that the first
+# line in the CSV file is data, *not* the column names. Conversely: if no
+# entry for a source id is present in this section, the data pump will assume
+# that the first line of the csv file contains the column names:
+
+#databases : 0,course,learner,percentGrade,attempts,firstSubmit,lastSubmit,probId,partsCorrectness
 
 [InfoText]
 compilers : Grades for ompiler course Spring 2014
 databases: Grades for original un-partitioned database course
 
 
-[ColumnNames]
-databases : 0,course,learner,percentGrade,attempts,firstSubmit,lastSubmit,probId,partsCorrectness

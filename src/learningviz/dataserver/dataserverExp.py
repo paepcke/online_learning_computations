@@ -175,10 +175,6 @@ class DataServer(object):
         super(DataServer,self).__init__()
         self.cnf_file_path = configFile
         
-        #***********
-        print("Current thread: %s" % current_thread())
-        #***********
-
         self.setupLogging(logLevel, logFile)   
 
         if self.cnf_file_path is None:
@@ -356,7 +352,12 @@ class DataServer(object):
 
             # Create a new thread to feed the stream back to the client:
             try:
-                new_thread = OneStreamServer(stream_id, cmd_queue, source_id, self.conf_parser)
+                # The first stream_id specifies the topic to which
+                # the new thread is to publish. It so happens that we
+                # use the stream_id for the topic. The second stream_id
+                # parameter is the stream_id, which is included in case
+                # the topic convention is ever changed: 
+                new_thread = OneStreamServer(stream_id, stream_id, cmd_queue, source_id, self.conf_parser)
             except (ValueError, IOError) as e:
                 self.logError(`e`)
                 self.returnError(stream_id, `e`)
@@ -365,6 +366,12 @@ class DataServer(object):
             # will be included in all subsequent commands from the
             # client:
             self.threads[stream_id] = new_thread
+            
+            # Share the logging methods with the threads:
+            new_thread.logInfo  = self.logInfo
+            new_thread.logError = self.logError
+            new_thread.logDebug = self.logDebug
+            new_thread.logWarn  = self.logWarn
             # Pause the stream so it won't start till client sends
             # a 'play' command:
             cmd_queue.put('pause')
@@ -440,7 +447,7 @@ class DataServer(object):
 
 class OneStreamServer(threading.Thread):
     
-    def __init__(self, stream_id, cmd_queue, source_id, conf_parser):
+    def __init__(self, topic_name, stream_id, cmd_queue, source_id, conf_parser):
         '''
         Thread to serve out one stream to one bus client.
         Communicate with this thread via cmd_queue. Given
@@ -449,6 +456,8 @@ class OneStreamServer(threading.Thread):
         query whose results to stream. The stream_id is the
         id under which the main thread finds this thread.
         
+        :param topicName: topic to which stream will be published.
+        :type topicName: str
         :param stream_id: identifier for this thread
         :type stream_id: str
         :param cmd_queue: queue through which main thread sends 
@@ -464,6 +473,7 @@ class OneStreamServer(threading.Thread):
         
         super(OneStreamServer, self).__init__()
         
+        self.topic_name = topic_name
         self.cmd_queue = cmd_queue
         self.source_id = source_id
         self.stream_id = stream_id
@@ -513,27 +523,81 @@ class OneStreamServer(threading.Thread):
                 self.source_iterator.close()
             except Exception:
                 pass
-        # Make sure you catch ValueError when creating a new OneStreamServer thread instance:
+        # Make sure you catch ValueError when creating a new OneStreamServer thread instance,
+        # because the following may raise one:
+#         try:
+#             csv_file_name = os.path.expanduser(os.path.expandvars(self.conf_parser.get('CSVFiles', self.source_id)))
+#         except ConfigParser.NoSectionError:
+#             raise ValueError('Configuration file does not contain a CSVFiles section.')
+#         except ConfigParser.NoOptionError:
+#             raise ValueError('Configuration file does not contain an entry for CSVFiles:%s.' % self.source_id)
+#         
+#         try:
+#             file_iteratoer = open(csv_file_name, 'r')
+#         except IOError:
+#             raise IOError('Configuration file specs path %s for streamID %s; file does not exist or is not readable' %\
+#                           (csv_file_name, self.source_id))
+
+        # NOTE: the following raises an IOError if CSV file should
+        # exist, but does not:
+        file_iterator = self.get_csv_iterator()
+
+        # If no CSV iterator, try MySQL iterator.
+        # This may raise NotImplemented:
+        if file_iterator is None:
+            file_iterator = self.get_mysql_iterator()
+        else: 
+            # CSV file is open. Check whether the data pump config file contains
+            # column names for this CSV source:
+            try:
+                self.colnames = self.conf_parser.get("ColumnNames", self.source_id).strip()
+            except (ConfigParser.NoOptionError, ConfigParser.NoSectionError):
+                # No column names in the config file, so the first line in the
+                # CSV file must be the columns:
+                
+                self.colnames = file_iterator.readline().strip()
+                
+                # Now self.colnames has the column names from the first
+                # line, or is empty if the entire CSV file is empty, or
+                # the first line is empty. If empty, then invent_columns()
+                # will come up with reasonable substitutes. 
+        
+        return file_iterator
+        
+    def get_csv_iterator(self):
+        '''
+        Checks whether the configuration file has a CSVFiles-section that
+        contains an option keyed as the source_id we are to stream.
+        If yes, opens the CSV file and returns a file object.
+        
+        :returns open file object, or None if no option exists in the config file.
+        :rtype CSV reader
+        :raise IOError if CSV file specification exists, but file cannot be opened.
+        
+        '''
+        # Is a CSV file path registered in the config file for
+        # the given source id?
         try:
             csv_file_name = os.path.expanduser(os.path.expandvars(self.conf_parser.get('CSVFiles', self.source_id)))
-        except ConfigParser.NoSectionError:
-            raise ValueError('Configuration file does not contain a CSVFiles section.')
-        except ConfigParser.NoOptionError:
-            raise ValueError('Configuration file does not contain an entry for CSVFiles:%s.' % self.source_id)
-        
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            # No csv file registered:
+            return None
         try:
-            file_iteratoer = open(csv_file_name, 'r')
+            file_iterator = open(csv_file_name, 'r')
         except IOError:
             raise IOError('Configuration file specs path %s for streamID %s; file does not exist or is not readable' %\
                           (csv_file_name, self.source_id))
-        return file_iteratoer
+        return csv.reader(file_iterator)
         
-        
+    def get_mysql_iterator(self):
+        raise NotImplemented("MySQL query streams are not yet implemented.")
+
+    
     def run(self):
         
         row_count = 0
         tuple_dict_batch = [] #@UnusedVariable
-        self.logInfo('Starting to publish data to %s...' % self.topic)
+        self.logInfo('Starting to publish data to %s...' % self.topic_name)
         try:
             # Note: Can't use "for info in self.source_iterator"
             #       for the loop, b/c we want the ability to restart
@@ -594,7 +658,7 @@ class OneStreamServer(threading.Thread):
                         return
                     
                     bus_msg = BusMessage(content=json.dumps(tuple_dict_batch),
-                                         topicName=self.topic)
+                                         topicName=self.topic_name)
                     self.bus.publish(bus_msg)
                     row_count += 1
                     tuple_dict_batch = []
@@ -649,7 +713,7 @@ class OneStreamServer(threading.Thread):
         if len(existing_colnames) >= len(data_arr):
             return existing_colnames
         for i in range(len(existing_colnames), len(data_arr)):
-            existing_colnames.append('col-%s' % str(i))
+            existing_colnames += ('col-%s' % str(i))
         return existing_colnames
 
 # The following subclasses are no longer used, but 
