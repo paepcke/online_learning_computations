@@ -13,6 +13,8 @@ TODO:
 
 '''
 
+import ConfigParser
+import Queue
 from __builtin__ import False
 import argparse
 import csv
@@ -23,6 +25,7 @@ import json
 import logging
 import os
 import sys
+from threading import Event, current_thread
 import threading
 import time
 
@@ -30,6 +33,7 @@ from pymysql_utils.pymysql_utils import MySQLDB
 from redis_bus_python.bus_message import BusMessage
 from redis_bus_python.redis_bus import BusAdapter
 from redis_bus_python.redis_lib.exceptions import ConnectionError 
+
 
 class DataServer(object):
     '''
@@ -53,28 +57,105 @@ class DataServer(object):
     The server listens on topic dataserverControl for messages
     that cause it to pause, resume, stop, and change speed. The content
     field of the associated messages are:
-       {"cmd" : "pause"}
-       {"cmd" : "resume"}
-       {"cmd" : "stop"}
-       {"cmd" : "changeSpeed", "arg" : "<fractionalSeconds>"}
+    
+       {"cmd" : "initStream", "sourceId" : "<sourceId>"}
+       {"cmd" : "play", "streamId" : "<streamId>"}
+       {"cmd" : "pause", streamId : "a39fc5b440dd4be1b02a1a05fd167e68"}
+       {"cmd" : "resume", streamId : "a39fc5b440dd4be1b02a1a05fd167e68"}
+       {"cmd" : "stop", streamId : "a39fc5b440dd4be1b02a1a05fd167e68"}
+       {"cmd" : "restart", streamId : "a39fc5b440dd4be1b02a1a05fd167e68"}
+       {"cmd" : "changeSpeed", streamId : "a39fc5b440dd4be1b02a1a05fd167e68", "arg" : "<fractionalSeconds>"}
+       {"cmd" : "listSources"}
        
     A stop message will exit the server! Applications who provide
     GUI access to the stop message should warn their users.
+        
+    Command initStream:
+     
+    the sourceId must be a key that identifies a
+    data source, such as a CSV file to this server. These keys
+    are provided to this server via a config file, and available via
+    command listSources. The protocol for requesting a new stream uses 
+    the SchoolBus callback feature. The details are taken care of
+    by the publish() methods of the BusAdapter implementations: 
+    redis_bus.py for Python, and js_schoolbus_bride.js for JavaScript. 
+      
+        - client creates the unique id <msgId> for a request msg to 
+          this server.
+        - client subscribes to topic "tmp.<msgId>"
+        - client publishes newStream request to topic dataserverControl.
+        - server publishes a response message to topic "tmp.<msgId>"
+             The 'content' field of that response message will be:
+             
+                    {"streamId" : <uuidStr>}
+               
+          The streamId will be the topic to which this server will publish
+          the data. That same streamId must also be included in any subsequent
+          request by the client that references the new stream. See cmd 
+          summary above.
+          
+        - client publishes a play message without the sourceId argument
+          to 'dataserverControl'.    
     
-    A config file can be used to provide key/values in which keys
+    Command play: 
+    
+    If the stream with the given streamId is currently paused, 
+    the effect is the same as the resume command. If a stream
+    was started with initStream, the play command will start the
+    data flowing.
+    
+    Command changeSpeed:
+    
+    Takes as argument the transmission period, i.e. the number of 
+    fractional seconds between each transmission.  
+    
+    Command listSources:
+    
+    Returns a list of source ids and corresponding information.
+    The source ids are the keys in the CSVFiles and MySQLQueries
+    sections of the configuration file (see below). The corresponding
+    information is taken from the InfoText section. The returned
+    JSON is structured like this:
+       
+        {"sourceId" : "mySrc1", "info" : "This source shows my family tree.",
+         "sourceId" : "mySrc2"
+         }
+         
+    That is, the information field may or may not be present. The information
+    may include '\n' characters. The JSON may also be empty: {} if no
+    sources are currently offered by this data pump. This command is
+    replied-to via a bus pseudo synchronous call.
+    
+    The config file provides key/values in which keys
     are names for datasets, and values are either an absolute or
     relative path to a corresponding CSV file, or a MySQL query.
     Example config file content:
-        [GradeFiles]
+    
+        [CSVFiles]
         compilers : /home/me/data/compilerGrades.csv
         databases : ../theDbGrades.csv
         statistics : $HOME/Data/Grades/stats.csv
+        
+        [MySQLQueries]
         artCourse=SELECT * FROM foo WHERE ...
+            ...
+        
+        [InfoText]
+        compilers : Grades for ompiler course Spring 2014
+        databases: Grades for original un-partitioned database course 
         
     Both ':" and "=" are suported as separator, but for "=" no space
     is permitted. See Python ConfigParser module for details. 
     
-    Various command line option allow some customization. 
+        
+    Status or error messages from the data server to the client will
+    be published as error messages to tmp.<msgId>. In particular: when a stream
+    has ended, a message with content:
+
+            {"error" : "endOfStream"} 
+    
+    Various command line options to this server allow some customization
+    of this server. See __main__ section.
     
     If this server is to be used with with the real-time assignment
     grade demo, see gradeGraph.js header for details of expected
@@ -85,8 +166,9 @@ class DataServer(object):
     # Topic on which this server listens for control messages,
     # such as pause, resume, newSpeed, and stop:
     
-    SERVER_CONTROL_TOPIC = "dataserverControl"
+    SERVER_CONTROL_TOPIC = "datapumpControl"
     INTER_BATCH_DELAY    = 2 # second
+    STREAM_THREAD_SHUTDOWN_TIMEOUT = 1 # Second
 
     mysql_default_port = 3306
     mysql_default_host = '127.0.0.1'
@@ -99,7 +181,7 @@ class DataServer(object):
     logger = None
     
     
-    def __init__(self, topic, redis_server='localhost', logFile=None, logLevel=logging.INFO):
+    def __init__(self, redis_server='localhost', configFile=None, logFile=None, logLevel=logging.INFO):
         '''
         Get ready to publish content of a CSV file or results
         from a query to the SchoolBus.
@@ -110,29 +192,86 @@ class DataServer(object):
         :type redis_server: str
         '''
         super(DataServer,self).__init__()
+        self.cnf_file_path = configFile
+        
+        self.setupLogging(logLevel, logFile)   
+
+        if self.cnf_file_path is None:
+            self.cnf_file_path = os.path.join(os.path.dirname(__file__), 'dataserver.cnf')
+        else:
+            self.cnf_file_path = configFile
+        
+        # The main section may have checked the config parser
+        # already, but we do it again:
+        if not (os.path.isfile(self.cnf_file_path) and os.access(self.cnf_file_path, os.R_OK)):
+                raise IOError('Dataserver config file %s does not exist.')       
+
+        self.conf_parser = ConfigParser.ConfigParser()
+        self.conf_parser.read(self.cnf_file_path)
+
+        # Whether cnt-c has shut us down:
+        self.shutdown = False
+
         try:
             self.bus = BusAdapter(host=redis_server)
         except ConnectionError:
             self.logError("Cannot connect to bus; is redis_bus running?")
             sys.exit()
-            
-        self.setupLogging(logLevel, logFile)            
-        self.colnames = []
-        self.topic = topic
         
-        self.pausing = False
-        self.pause_done_event = threading.Event()
-        
-        self.stopping = False
+        # Dict of message streamId --> queue. Given the streamId
+        # that identifies to which thread an incoming control message
+        # is directed, get the queue to which that thread listens for
+        # commands:   
+        self.msg_queues = {}
+
+        # Dict to map streamId --> thread,
+        self.threads = {}
         
         # Listen to messages from the bus that control
         # how this server functions:
         self.bus.subscribeToTopic(DataServer.SERVER_CONTROL_TOPIC, functools.partial(self.service_control_msgs))
         
+        self.logInfo('Data pump now listening for requests on SchoolBus.')
+        
+        # Hang till cnt-C calls shutdown():
+        while True:
+            time.sleep(1)
+            if self.shutdown:
+                return
+            # Check for streams that delivered all
+            # their data and clean up after them:
+            for (stream_id, one_thread) in self.threads.items():
+                if not one_thread.isAlive():
+                    del self.msg_queues[stream_id]
+                    del self.threads[stream_id]
+
+    def shutdown(self):
+        # Stop all running streams:
+        for (stream_id, one_thread) in self.threads.items():
+            self.logInfo('Stopping stream %s' % stream_id)
+            one_thread.stop()
+            one_thread.join(DataServer.STREAM_THREAD_SHUTDOWN_TIMEOUT)
+            # If thread still alive, the stop failed:
+            if one_thread.is_alive():
+                self.logError('Could not stop stream %s' % stream_id)
+            else:
+                self.logInfo('Stream %s stopped successfully' % stream_id)
+
+        # Shut down the bus adapter:        
+        try:
+            self.bus.close()
+        except RuntimeError as e:
+            self.logError('Problem while shutting down BusAdapter: %s' % `e`)
+            
+        # Release completion of __init__() method and thereby closure of main thread:
+        self.shutdown = True
+                
     def service_control_msgs(self, controlMsg):
         '''
+        Note: Called from a different thread: BusAdapter.
         Receive function control messages from the bus. Recognized
         commands are
+            - play
             - pause
             - resume
             - stop
@@ -146,7 +285,7 @@ class DataServer(object):
             cntrl_dict = json.loads(controlMsg.content)
         except (ValueError, TypeError):
             # Not valid JSON:
-            self.logError("Bad JSON in control msg: %s" % str(cntrl_dict))
+            self.logError("Bad JSON in control msg: %s" % str(controlMsg.content))
             return
         
         try:
@@ -156,124 +295,205 @@ class DataServer(object):
             self.logError("No command in control msg: %s" % str(cntrl_dict))
             return
         
-        if cmd == 'pause':
-            if self.pausing:
+        stream_id = cntrl_dict.get('streamId', None)
+        
+        # The only command for which client does not need to
+        # pass a stream ID is for a new-stream request:
+        if stream_id is None and not cmd in ['initStream', 'listSources']:
+            self.logError('Received command %s without the required streamId field.' % cmd)
+            return
+        elif not stream_id is None:
+            # Got a stream ID for a command that requires one. 
+            # But do we recognize that stream id?
+            cmd_queue = self.msg_queues.get(stream_id, None)
+            if cmd_queue is None:
+                err_msg = 'Command %s with unrecognized stream ID %s.' % (cmd, stream_id)
+                self.logError(err_msg)
+                self.returnError(stream_id, err_msg)
                 return
-            self.pausing = True
+        
+        if cmd == 'play':
+            # In this context, play is the same as resuming
+            # from a pause; if not currently paused, no effect:
+            cmd_queue.put('resume')
+            self.logInfo('Play stream %s' % self.topic)
+            return
+        if cmd == 'pause':
+            cmd_queue.put('pause')
             self.logInfo('Pausing %s' % self.topic)
             return
         elif cmd == 'resume':
-            if not self.pausing:
-                return
-            self.pausing = False
-            self.pause_done_event.set()
+            cmd_queue.put('resume')
             self.logInfo( 'Resuming %s' % self.topic)
             return
         elif cmd == 'stop':
-            self.stopping = True
-            # In case the send-all() loop is in paused condition,
-            # set the unpause-event:
-            self.pause_done_event.set()
+            cmd_queue.put('stop')
             self.logInfo('Received stop %s' % self.topic)
             return
         elif cmd == 'changeSpeed':
             try:
                 new_speed = float(cntrl_dict.get('arg', None))
+                if new_speed is None:
+                    raise ValueError("")
             except (ValueError, TypeError):
-                self.logError('Change-Speed command issued without valid new-speed number: %s' % new_speed)
+                err_msg = 'Change-Speed command issued without valid new-speed number: %s' % str(cntrl_dict)
+                self.logError(err_msg)
+                self.returnError(stream_id, err_msg)
                 return
             else:
                 self.logInfo('Changing speed for topic %s to %s' % (self.topic, new_speed))
-                DataServer.INTER_BATCH_DELAY = new_speed
-                
-        else:
-            # Unrecognized command:
-            self.logError('Command not recognized in message %s' % str(controlMsg))
+                cmd_queue.put('changeSpeed,%s' % new_speed)
+                return
+        elif cmd == 'restart':
+            cmd_queue.put('restart')
+            self.logInfo('Received restart for streamId %s' % stream_id)
             return
         
-    def send_all(self, batch_size=1, max_to_send=-1, inter_batch_delay=None):
-        if inter_batch_delay is None:
-            DataServer.INTER_BATCH_DELAY = DataServer.INTER_BATCH_DELAY
-        elif type(inter_batch_delay) != 'float' and type(inter_batch_delay) != 'int':
-            raise TypeError('The inter_batch_delay parameter for send_all must be None, float, or int; was %s' % str(inter_batch_delay))
-        else:
-            DataServer.INTER_BATCH_DELAY = inter_batch_delay 
-        row_count = 0
-        tuple_dict_batch = []
-        self.logInfo('Starting to publish data to %s...' % self.topic)
-        try:
-            for info in self.it:
-                if len(info) == 0:
-                    # Empty line in CSV file:
-                    continue
-                if max_to_send > -1 and row_count >= max_to_send:
-                    return                
-                tuple_dict_batch.append(self.make_data_dict(info))
-                if len(tuple_dict_batch) >= batch_size or\
-                    len(tuple_dict_batch) + row_count >= max_to_send:
-                    bus_msg = BusMessage(content=json.dumps(tuple_dict_batch),
-                                         topicName=self.topic)
-                    self.bus.publish(bus_msg)
-                    row_count += 1
-                    tuple_dict_batch = []
-                    if self.pausing:
-                        # Wait till service_control_msgs() is called 
-                        # by an incoming bus message that either un-pauses
-                        # or stops the dataserver:
-                        self.pause_done_event.wait()
-                        self.pause_done_event.clear()
-                    elif self.stopping:
-                        return
-                    else:
-                        time.sleep(DataServer.INTER_BATCH_DELAY)
-                    continue
-        finally:
-            self.logInfo("Published %s data rows." % row_count)
-    
-    def make_data_dict(self, content_line_arr):
-        '''
-        given an array [10,20,30], uses method
-        invent_colnames() to return a JSON string
-        '{"col1" : 10, "col2" : 20, "col3" : 30}'
-        The invent_colnames() method either uses either
-        a previously defined array of col names, or 
-        invents names. 
-        
-        :param content_line_arr: array of values out of a CSV file or 
-            query result.
-        :type content_line_arr: [<anyOtherThanObject>]
-        :result: a dict {<colName> : <colVal>}
-        :rtype: {str, any}
-        '''
-        self.colnames = self.invent_colnames(self.colnames, content_line_arr)
-        # Make dict by combining the colname and data values
-        # like a zipper. If fewer data values than columns,
-        # fill with 'null' string:
-        dataDict = dict(itertools.izip_longest(self.colnames, content_line_arr, fillvalue='null'))
-        return dataDict
+        elif cmd == 'listSources':
+            # Prepare the synchronous reply message with
+            # an empty content part for now:
+            src_list_reply_msg = self.bus.makeResponseMsg(controlMsg, '')
+            try:
+                res = self.create_list_source_info()
+            except ValueError as e:
+                self.logError(`e`)
+                # The above-prepared reply message has the return
+                # topic already filled in. Use it to tell the
+                # error sender where to send the error:
+                self.returnError(src_list_reply_msg.topicName(), `e`)
+                return
+            else:
+                src_list_reply_msg.content = res
+                self.bus.publish(src_list_reply_msg)
+                return
+         
+        elif cmd == 'initStream':
+            
+            # Prepare the response message back to the client:
+            # Make a BusMessage for the response. That response
+            # message will have a unique message identifier. We
+            # will use it as the streamId for this new stream going forward.  
+            
+            response_msg = self.bus.makeResponseMsg(controlMsg, '')
+            stream_id    = response_msg.topicName 
+            
+            # Code earlier already verified that source_id was provided
+            # in the request message:
+            source_id = cntrl_dict.get('sourceId', None)
+            if source_id is None:
+                err_msg = 'New stream request without the required source_id.'
+                self.logError(err_msg)
+                self.returnError(stream_id, err_msg)
+                return
+            # Create a queue into which later incoming client requests
+            # will be fed to the stream-sending thread:
+            cmd_queue = Queue.Queue()
+            self.msg_queues[stream_id] = cmd_queue
+            self.topic = stream_id
 
-    def invent_colnames(self, existing_colnames, data_arr):
+            # Create a new thread to feed the stream back to the client:
+            try:
+                # The first stream_id specifies the topic to which
+                # the new thread is to publish. It so happens that we
+                # use the stream_id for the topic. The second stream_id
+                # parameter is the stream_id, which is included in case
+                # the topic convention is ever changed: 
+                new_thread = OneStreamServer(stream_id, stream_id, cmd_queue, source_id, self.conf_parser, self.bus)
+            except (ValueError, IOError, NotImplemented) as e:
+                self.logError(`e`)
+                self.returnError(stream_id, `e`)
+                return
+            # Remember the thread keyed by the stream_id that
+            # will be included in all subsequent commands from the
+            # client:
+            self.threads[stream_id] = new_thread
+            
+            # Share the logging methods with the threads:
+            new_thread.logInfo  = self.logInfo
+            new_thread.logError = self.logError
+            new_thread.logDebug = self.logDebug
+            new_thread.logWarn  = self.logWarn
+            # Pause the stream so it won't start till client sends
+            # a 'play' command:
+            cmd_queue.put('pause')
+            new_thread.start()
+            # Finally, initialize the content field of the response
+            # message:
+            response_msg.content = '{"streamId" : stream_id}'
+            self.bus.publish(response_msg)
+            return
+
+        else:
+            # Unrecognized command:
+            self.logError('Command not recognized in message %s' % str(controlMsg.content))
+            return
+
+
+    def create_list_source_info(self):
         '''
-        Given a possibly empty array of column names,
-        return a new array of column names that is at
-        least as long as the number of elements in 
-        data_arr. If the given col name array is longer
-        than data_arr, it is returned unchanged. If
-        col names are missing, the returned array is
-        padded with 'col-n' where n is an int.
+        Return a JSON array of objects:
+           [{"sourceId" : "my_source" , "info" : "This is my favorite source."},
+            {"sourceId" : "my_other_source, "info" : ''}
+            ]
+        Both CSV files and MySQL queries are included.
         
-        :param existing_colnames: possibly empty array of known column names in order.
-        :type existing_colnames: [str]
-        :param data_arr: array of any data
-        :type data_arr: [<any>]
-        :return: array of column names strings
-        :rtype: [str]
+        :return JSON construct containing list of source ids and corresponding
+            information from the configuration file.
+        :raise ValueError if the source list could not be assembled.
         '''
-        if len(existing_colnames) >= len(data_arr):
-            return existing_colnames
-        for i in range(len(existing_colnames), len(data_arr)):
-            existing_colnames.append('col-%s' % str(i))
-        return existing_colnames
+        try:
+            csv_sources = self.conf_parser.options('CSVFiles')
+        except ConfigParser.NoSectionError:
+            # Config file has no CSVFiles section. Shouldn't be, but be defensive:
+            csv_sources = []
+        try:
+            mysql_sources = self.conf_parser.options('MySQLQueries')
+        except ConfigParser.NoSectionError:
+            # Config file has no MySQLQueries section. Shouldn't be, but be defensive:
+            mysql_sources = []
+
+        all_source_ids = []
+        all_source_ids.extend(csv_sources)
+        all_source_ids.extend(mysql_sources)
+        arr_of_dicts = []
+        for source_id in all_source_ids:
+            source_dict = {'sourceId' : '%s' % source_id} 
+            try:
+                source_info = self.conf_parser.get('InfoText', source_id)
+            except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+                # No info text available for this source:
+                arr_of_dicts.append(source_dict)
+                continue
+            source_dict['info'] = source_info
+            arr_of_dicts.append(source_dict)
+        try:
+            return json.dumps(arr_of_dicts)
+        except Exception as e:
+            err_msg = "Could not assemble source list: JSONization failed for %s (%s)" % (str(arr_of_dicts), `e`)
+            self.logError(err_msg)
+            raise ValueError(err_msg)
+        
+            
+    def returnError(self, streamId, errorMsg):
+        '''
+        Given the streamId of an existing stream, and an
+        error message, publish a BusMessage with the given
+        message to the topic on which the originating client
+        is listening. That topic was derived from the client's
+        newStream message. The content field will be:
+           {"error" : "<errorMsg>"}
+        
+        :param streamId: identifier of the stream about which the error message is being sent.
+                         this ID is also used as the response channel topic back to the client.
+        :type inMsg: str
+        :param errorMsg: value of the outgoing message's 'content' JSON "error" field. 
+        :type errorMsg: str
+        '''
+        
+        msg = BusMessage()
+        msg.topicName = streamId
+        msg.content = '{"error" : %s)' % errorMsg
+        self.bus.publish(msg)
 
     def setupLogging(self, loggingLevel, logFile):
         if DataServer.loggingInitialized:
@@ -312,74 +532,365 @@ class DataServer(object):
     def logDebug(self, msg):
         DataServer.logger.debug(msg)
 
-
-class MySQLDataServer(DataServer):
-
-    def __init__(self, 
-                 query,
-                 topic,
-                 host=DataServer.mysql_default_host, 
-                 port=DataServer.mysql_default_port, 
-                 user=DataServer.mysql_default_user,
-                 pwd=DataServer.mysql_default_pwd, 
-                 db=DataServer.mysql_default_db, 
-                 redis_server='localhost',
-                 colname_arr=[],
-                 max_to_send=-1,
-                 logFile=None,
-                 logLevel=logging.INFO                 
-                 ):
-        '''
-        Constructor
-        '''
-        # Super throws 'TypeError: must be type, not str'
-        # So need to use explicit superclass call...odd. 
-        #super('CSVDataServer', self).__init__(topic)
-        #super('MySQLDataServer', self).__init__(topic)
-        DataServer.__init__(self, topic, logFile=logFile, logLevel=logLevel)
-        self.db = MySQLDB(host=host, port=port, user=user, passwd=pwd, db=db, redis_server=redis_server)
-        # Column name array to superclass instance:
-        self.colnames = colname_arr
-        self.it = self.db.query(query)
-        self.send_all(max_to_send=max_to_send)
-        
-class CSVDataServer(DataServer):
+class OneStreamServer(threading.Thread):
     
-    def __init__(self, 
-                 fileName,
-                 topic,
-                 first_line_has_colnames=False,
-                 redis_server='localhost',
-                 colnames=[],
-                 max_to_send=-1,
-                 logFile=None,
-                 logLevel=logging.INFO                 
-                 ):
-        # Super throws 'TypeError: must be type, not str'
-        # So need to use explicit superclass call...odd. 
-        #super('CSVDataServer', self).__init__(topic)
-        DataServer.__init__(self, topic, redis_server=redis_server, logFile=logFile, logLevel=logLevel)
+    PUBLISH_LOCK = threading.Lock()
+    
+    def __init__(self, topic_name, stream_id, cmd_queue, source_id, conf_parser, bus):
+        '''
+        Thread to serve out one stream to one bus client.
+        Communicate with this thread via cmd_queue. Given
+        a source_id and an initialized ConfigParser instance,
+        find the CSV file to stream to the bus, or the MySQL
+        query whose results to stream. The stream_id is the
+        id under which the main thread finds this thread.
+        
+        :param topicName: topic to which stream will be published.
+        :type topicName: str
+        :param stream_id: identifier for this thread
+        :type stream_id: str
+        :param cmd_queue: queue through which main thread sends 
+               client requests that control the stream.
+        :type cmd_queue: Queue
+        :param source_id: key into the configuration file
+        :type source_id: str
+        :param conf_parser: initialized configuration parser with 
+              values containing CSV file paths or MySQL queries
+        :type conf_parser: ConfigParser
+        :param bus: the BusAdapter through which to publish
+        :type bus: BusAdapter
+        '''
+        
+        super(OneStreamServer, self).__init__()
+        
+        self.topic_name = topic_name
+        self.cmd_queue = cmd_queue
+        self.source_id = source_id
+        self.stream_id = stream_id
+        self.conf_parser = conf_parser
+        self.bus = bus
+        self.pausing   = False
+        self.stopping  = False
+        self.inter_batch_delay = DataServer.INTER_BATCH_DELAY
+        # Send each 'batch' of 1; if larger, several rows are
+        # sent together: 
+        self.batch_size = 1
+        # No limit on how many rows to send:
+        self.max_to_send = -1
+        self.source_iterator = None
+        
+        self.source_iterator = self.get_source_iterator()
+        
+    @property
+    def stream_id(self):
+        '''Thread's identifier'''
+        return self._stream_id
+
+    @stream_id.setter
+    def stream_id(self, val):
+        self._stream_id = val
+
+    def stop(self):
+        # Pretend the client issued a stop command:
+        self.cmd_queue.put_nowait('stop')
+
+    def get_source_iterator(self):
+        '''
+        Given self.source_id and a ConfigParser instance in self.config_parser,
+        return an iterator that will feed one line after another upon next().
+        First tries to close any existing iterator. Then uses source_id
+        as key into config file section CSVFiles. If either that section or
+        that option (i.e. source_id) are not available in the config file,
+        raise ValueError. Expects the config option to be the path to a CSV
+        file. Tries to open that file. If failure, raises IOError.
+        
+        NOTE: Modify to also try section MySQLQueries with source_id to
+              create a query iterator.
+        
+        :return: An iterator that feeds one result/CSV-line at a time.
+        :rtype: iterator(<str>) 
+        
+        '''
+        # If we already have an iterator going, close it first:
+        if self.source_iterator is not None:
+            try:
+                self.source_iterator.close()
+            except Exception:
+                pass
+
+        # NOTE: the following raises an IOError if CSV file should
+        # exist, but does not:
+        file_iterator = self.get_csv_iterator()
+
+        # If no CSV iterator, try MySQL iterator.
+        # This may raise NotImplemented:
+        if file_iterator is None:
+            file_iterator = self.get_mysql_iterator()
+        else: 
+            # CSV file is open. Check whether the data pump config file contains
+            # column names for this CSV source:
+            try:
+                self.colnames = self.conf_parser.get("ColumnNames", self.source_id).strip()
+            except (ConfigParser.NoOptionError, ConfigParser.NoSectionError):
+                # No column names in the config file, so the first line in the
+                # CSV file must be the columns, which will be returned as
+                # an array of str:
                 
-        fd = open(fileName, 'r')
-        csvreader = csv.reader(fd)
-        # Explicitly provided colnames have precedence
-        # over colnames in first line of file:
-        if len(colnames) > 0:
-            self.colnames = colnames
-            # Trash first line in file if appropriate:
-            if first_line_has_colnames:
-                csvreader.next()
-        elif first_line_has_colnames:
-            # No explicit col names, but file has them;
-            # send column name array to superclass instance var:
-            self.colnames = csvreader.next()
-        # ... else superclass will invent col names.
-        self.it = csvreader
-        self.send_all(max_to_send=max_to_send)
+                self.colnames = file_iterator.next()
+                
+                # Now self.colnames has the column names from the first
+                # line, or is empty if the entire CSV file is empty, or
+                # the first line is empty. If empty, then invent_columns()
+                # will come up with reasonable substitutes. 
+        
+        return file_iterator
+        
+    def get_csv_iterator(self):
+        '''
+        Checks whether the configuration file has a CSVFiles-section that
+        contains an option keyed as the source_id we are to stream.
+        If yes, opens the CSV file and returns a file object.
+        
+        :returns open file object, or None if no option exists in the config file.
+        :rtype CSV reader
+        :raise IOError if CSV file specification exists, but file cannot be opened.
+        
+        '''
+        # Is a CSV file path registered in the config file for
+        # the given source id?
+        try:
+            csv_file_name = os.path.expanduser(os.path.expandvars(self.conf_parser.get('CSVFiles', self.source_id)))
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            # No csv file registered:
+            return None
+        try:
+            file_iterator = open(csv_file_name, 'r')
+        except IOError:
+            raise IOError('Configuration file specs path %s for streamID %s; file does not exist or is not readable' %\
+                          (csv_file_name, self.source_id))
+        return csv.reader(file_iterator)
+        
+    def get_mysql_iterator(self):
+        raise NotImplemented("MySQL query streams are not yet implemented.")
+
+    
+    def run(self):
+        
+        row_count = 0
+        tuple_dict_batch = [] #@UnusedVariable
+        self.logInfo('Starting to publish data to %s...' % self.topic_name)
+        try:
+            # Note: Can't use "for info in self.source_iterator"
+            #       for the loop, b/c we want the ability to restart
+            #       self.source_iterator from the beginning.
+            
+            while True:
+                try:
+                    # Next array of result elements (from CSV file or MySQL query):
+                    info = self.source_iterator.next()
+                except StopIteration:
+                    # Sources is exhausted; quit this thread:
+                    self.logInfo("Stream '%s' is done." % self.source_id)
+                    return
+
+                # Check for control command from client:
+                try:
+                    cmd = self.cmd_queue.get_nowait()
+                    # Do something:
+                    if cmd == 'pause':
+                        self.pausing = True
+                    elif cmd == 'stop':
+                        self.stopping = True
+                    elif cmd.startswith('changeSpeed'):
+                        # We trust that the operator of the other end of
+                        # the queue sent a string 'changeSpeed,<fractionalSeconds>':
+                        new_speed = cmd.split(',')[1]
+                        try:
+                            new_speed = float(new_speed)
+                        except ValueError:
+                            self.logError('The inter_batch_delay parameter for send_all must be float, or int; was %s' % str(new_speed))
+                            # Ignore the command
+                        else:
+                            self.inter_batch_delay = new_speed
+                    elif cmd == 'restart':
+                        self.source_iterator = self.get_source_iterator()
+                        
+                except Queue.Empty:
+                    # No new control command:
+                    pass
+                
+                if len(info) == 0:
+                    # Empty line in CSV file:
+                    continue
+                if self.max_to_send > -1 and row_count >= self.max_to_send:
+                    return                
+                tuple_dict_batch.append(self.make_data_dict(info))
+                if len(tuple_dict_batch) >= self.batch_size or\
+                    len(tuple_dict_batch) + row_count >= self.max_to_send:
+                    
+                    if self.pausing:
+                        # Wait for 'resume' or 'stop' message:
+                        while self.pausing:
+                            cmd = self.cmd_queue.get()
+                            if cmd == 'resume':
+                                self.pausing = False
+                                continue
+                            elif cmd == 'stop':
+                                self.pausing = False
+                                self.stopping = True
+                    elif self.stopping:
+                        return
+                    
+                    bus_msg = BusMessage(content=json.dumps(tuple_dict_batch),
+                                         topicName=self.topic_name)
+
+                    # Let's not have multiple streams publish at once. It 
+                    # may work, or not. Should...but who knows: 
+                    with OneStreamServer.PUBLISH_LOCK:
+                        self.bus.publish(bus_msg)
+                    row_count += 1
+                    tuple_dict_batch = []
+
+                    time.sleep(self.inter_batch_delay)
+                    continue
+                else:
+                    # Continue filling a batch:
+                    continue
+        finally:
+            self.logInfo("Published %s data rows." % row_count)
+            self.logInfo("Stream '%s' is done." % self.source_id)
+    
+    def make_data_dict(self, content_line_arr):
+        '''
+        given an array [10,20,30], uses method
+        invent_colnames() to return a JSON string
+        '{"col1" : 10, "col2" : 20, "col3" : 30}'
+        The invent_colnames() method either uses
+        a previously defined array of col names, or 
+        invents names. 
+        
+        :param content_line_arr: array of values out of a CSV file or 
+            query result.
+        :type content_line_arr: [<anyOtherThanObject>]
+        :result: a dict {<colName> : <colVal>}
+        :rtype: {str, any}
+        '''
+        self.colnames = self.invent_colnames(self.colnames, content_line_arr)
+        # Make dict by combining the colname and data values
+        # like a zipper. If fewer data values than columns,
+        # fill with 'null' string:
+        dataDict = dict(itertools.izip_longest(self.colnames, content_line_arr, fillvalue='null'))
+        return dataDict
+
+    def invent_colnames(self, existing_colnames, data_arr):
+        '''
+        Given a possibly empty array of column names,
+        return a new array of column names that is at
+        least as long as the number of elements in 
+        data_arr. If the given col name array is longer
+        than data_arr, it is returned unchanged. If
+        col names are missing, the returned array is
+        padded with 'col-n' where n is an int.
+        
+        :param existing_colnames: possibly empty array of known column names in order.
+        :type existing_colnames: [str]
+        :param data_arr: array of any data
+        :type data_arr: [<any>]
+        :return: array of column names strings
+        :rtype: [str]
+        '''
+        if len(existing_colnames) >= len(data_arr):
+            return existing_colnames
+        for i in range(len(existing_colnames), len(data_arr)):
+            existing_colnames += ('col-%s' % str(i))
+        return existing_colnames
+
+# The following subclasses are no longer used, but 
+# I didn't have the heart to take them out yet. Also,
+# Let's wait till the MySQL part is implemented:
+
+# class MySQLDataServer(DataServer):
+# 
+#     def __init__(self, 
+#                  query,
+#                  topic,
+#                  host=DataServer.mysql_default_host, 
+#                  port=DataServer.mysql_default_port, 
+#                  user=DataServer.mysql_default_user,
+#                  pwd=DataServer.mysql_default_pwd, 
+#                  db=DataServer.mysql_default_db, 
+#                  redis_server='localhost',
+#                  colname_arr=[],
+#                  max_to_send=-1,
+#                  logFile=None,
+#                  logLevel=logging.INFO                 
+#                  ):
+#         '''
+#         Constructor
+#         '''
+#         # Super throws 'TypeError: must be type, not str'
+#         # So need to use explicit superclass call...odd. 
+#         #super('CSVDataServer', self).__init__(topic)
+#         #super('MySQLDataServer', self).__init__(topic)
+#         DataServer.__init__(self, topic, logFile=logFile, logLevel=logLevel)
+#         self.db = MySQLDB(host=host, port=port, user=user, passwd=pwd, db=db, redis_server=redis_server)
+#         # Column name array to superclass instance:
+#         self.colnames = colname_arr
+#         self.it = self.db.query(query)
+#         self.send_all(max_to_send=max_to_send)
+#         
+# class CSVDataServer(DataServer):
+#     
+#     def __init__(self, 
+#                  fileName,
+#                  topic,
+#                  first_line_has_colnames=False,
+#                  redis_server='localhost',
+#                  colnames=[],
+#                  max_to_send=-1,
+#                  logFile=None,
+#                  logLevel=logging.INFO                 
+#                  ):
+#         # Super throws 'TypeError: must be type, not str'
+#         # So need to use explicit superclass call...odd. 
+#         #super('CSVDataServer', self).__init__(topic)
+#         DataServer.__init__(self, topic, redis_server=redis_server, logFile=logFile, logLevel=logLevel)
+#                 
+#         fd = open(fileName, 'r')
+#         csvreader = csv.reader(fd)
+#         # Explicitly provided colnames have precedence
+#         # over colnames in first line of file:
+#         if len(colnames) > 0:
+#             self.colnames = colnames
+#             # Trash first line in file if appropriate:
+#             if first_line_has_colnames:
+#                 csvreader.next()
+#         elif first_line_has_colnames:
+#             # No explicit col names, but file has them;
+#             # send column name array to superclass instance var:
+#             self.colnames = csvreader.next()
+#         # ... else superclass will invent col names.
+#         self.it = csvreader
+#         self.send_all(max_to_send=max_to_send)
+
+
+# Note: function not method:
+def sig_handler(sig, frame):
+    # Close the SchoolBus, which will take down
+    # the main thread after it shut down any
+    # running streams:
+    print('Shutting down data pump ...')
+    server.shutdown()
+
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]), 
                                      formatter_class=argparse.RawTextHelpFormatter)
+    
+    parser.add_argument('-c', '--config',
+                        dest='config_file',
+                        help='Configuration file; default is ./dataserver.cnf',
+                        default=os.path.join(os.path.dirname(__file__), 'dataserver.cnf'))
     parser.add_argument('-s', '--host',
                         dest='host', 
                         help="For mysql src: fully qualified db host name.",
@@ -406,29 +917,6 @@ if __name__ == '__main__':
                         dest='redis_server', 
                         help="Name of machine that serves the bus (redis server); default localhost.",
                         default='localhost')
-    parser.add_argument('-t', '--type',
-                        metavar='csvOrDb',
-                        dest='csvOrDb',
-                        choices=['csv', 'mysql'],
-                        default='csv',
-                        help="Service type: 'csv' file or 'mysql' database; required.",
-                        )
-    parser.add_argument('-c', '--cols1stline',
-                        dest='colsIn1stLine',
-                        choices=['true', 'false'],
-                        default='false', 
-                        help="For csv src: true/false whether 1st line contains col names.",
-                        )
-    parser.add_argument('-m', '--maxmsgs',
-                        dest='max_to_send',
-                        type=int,
-                        help="Maximum number of messages to send. Default: all (a.k.a. -1)",
-                        default='-1')
-    parser.add_argument('-e', '--period',
-                        dest='period',
-                        type=float,
-                        help="Fractional seconds to wait between data batches. Default: %s" % DataServer.INTER_BATCH_DELAY,
-                        default=DataServer.INTER_BATCH_DELAY)
     parser.add_argument('-l', '--logFile', 
                         help='Fully qualified log file name to which info and error messages \n' +\
                              'are directed. Default: stdout.',
@@ -437,37 +925,29 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--verbose', 
                         help='Print operational info to log.', 
                         dest='verbose',
-                        action='store_true');
-    parser.add_argument('fileOrQuery',
-                        help="For mysql src: query to run; for csv: file name.",
-                       )
-    parser.add_argument('topic',
-                        help="Topic to which to publish.",
-                       )
-    parser.add_argument('colnames',
-                        nargs='*',
-                        metavar='columnnames', 
-                        help="Optional list of column names; for CSV may be provided in 1st line.",
-                       )
+                        action='store_true')
+    parser.add_argument('--period',
+                        dest='period',
+                        help="Number fractional seconds to wait between each message. Default is %s" % DataServer.INTER_BATCH_DELAY,
+                        default=DataServer.INTER_BATCH_DELAY)
 
     args = parser.parse_args();
 
-    # Are we to serve CSV file, or a MySQL query:
-    src_type = args.csvOrDb
-    if src_type == 'csv':
-        filename = args.fileOrQuery
-    else:
-        query = args.fileOrQuery
-    colnames = args.colnames
-    
     redis_server = args.redis_server
-    
-    max_to_send = args.max_to_send
     
     DataServer.INTER_BATCH_DELAY = args.period
         
-    # If serving a database query: Get all the security done:
-    if src_type == 'db':
+    config_parser = ConfigParser.ConfigParser()
+    config_file = args.config_file
+    # If serving any database queries: Get all the security done:
+    if not (os.path.isfile(config_file) and os.access(config_file, os.R_OK)):
+            raise IOError('Dataserver config file %s does not exist or is not readable.' % config_file)       
+
+    config_parser.read(config_file)
+    
+    # If we are to serve out at least on MySQL query,
+    # get the security taken care of:
+    if config_parser.has_section('MySQLQueries'):
         host = args.host
         port = args.port
         db   = args.db
@@ -500,36 +980,21 @@ if __name__ == '__main__':
                     # No .ssh subdir of user's home, or no mysql inside .ssh:
                     pwd = None
         # We now have all we need to serve a MySQL query
-    else:
-        # We are to serve a CSV file; does it exist?
-        try:
-            with open(filename, 'r') as fd:
-                pass
-        except IOError:
-            print("Could not open CSV file %s" % filename)
-            sys.exit()
-        colsIn1stLine = args.colsIn1stLine
-            
-    if src_type == 'csv':
-        server = CSVDataServer(filename,
-                               args.topic,
-                               first_line_has_colnames=colsIn1stLine,
-                               redis_server=redis_server,
-                               colnames=colnames,
-                               max_to_send=max_to_send,
-                               logFile=args.logFile,
-                               logLevel=logging.DEBUG if args.verbose else logging.INFO)
-    else:
-        server = MySQLDataServer(query,
-                                 args.topic, 
-                                 host=host,
-                                 port=port,
-                                 user=user,
-                                 pwd=pwd,
-                                 db=db,
-                                 redis_server=redis_server,
-                                 colname_arr=colnames,
-                                 max_to_send=max_to_send,
-                                 logFile=args.logFile,
-                                 logLevel=logging.DEBUG if args.verbose else logging.INFO
-                                 )
+        server = DataServer(redis_server=redis_server, 
+                            configFile=None, 
+                            logFile=None, 
+                            logLevel=logging.INFO)
+        
+#         server = MySQLDataServer(query,
+#                                  args.topic, 
+#                                  host=host,
+#                                  port=port,
+#                                  user=user,
+#                                  pwd=pwd,
+#                                  db=db,
+#                                  redis_server=redis_server,
+#                                  colname_arr=colnames,
+#                                  max_to_send=max_to_send,
+#                                  logFile=args.logFile,
+#                                  logLevel=logging.DEBUG if args.verbose else logging.INFO
+#                                  )

@@ -21,6 +21,7 @@ databases : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs145Grades.c
 [MySQLQueries]
 
 [ColumnNames]
+
 # An entry here is needed if and only if colnames are not in first line of CSV file.
 # If an entry for this source id is present, it is assumed that the first
 # line in the CSV file is data, *not* the column names. Conversely: if no
@@ -30,7 +31,13 @@ databases : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs145Grades.c
 #databases : 0,course,learner,percentGrade,attempts,firstSubmit,lastSubmit,probId,partsCorrectness
 
 [InfoText]
-compilers : Grades for ompiler course Spring 2014
+
+# Optional nformation about data sources. The keys must match the correspondiung
+# entries in CSVFiles or MySQLQueries. Entries may extend across multiple lines,
+# as long as all lines beyond the first are indented at least one column
+# further than the first line.
+
+compilers : Grades for compiler course Spring 2014
 databases: Grades for original un-partitioned database course
 
 
