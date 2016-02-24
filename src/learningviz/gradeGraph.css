@@ -14,6 +14,8 @@
 		background-color : white;
 		margin-left : 10px;
 	      }
+	      
+/* Avoid the blue outline when clicked: */	      
 .playerButton:focus { outline : none; }
 
 #playButton { background-image : url("img/playButtonTan60x60.png"); }
@@ -71,11 +73,16 @@
   				 background : rgb(166,137,59);  /* Dark brown */
   				 color : white;
 				}			  
+/* Avoid the blue outline when clicked: */	      
+.listSourcesBtn:focus { outline : none; }
+				
 .subscriptionBtn { width : 30%;
   				   box-sizing : border-box;
   				   margin : 2px;
   				   background : rgba(166,137,59,0.3);  /* Light tan */
 				  }			  
+/* Avoid the blue outline when clicked: */	      
+.subscriptionBtn:focus { outline : none; }
 
 /* Tooltip for when user clicks a gradebar: */
 .tooltip { position : absolute;

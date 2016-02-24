@@ -24,15 +24,16 @@ import itertools
 import json
 import logging
 import os
+from redis_bus_python.bus_message import BusMessage
+from redis_bus_python.redis_bus import BusAdapter
+from redis_bus_python.redis_lib.exceptions import ConnectionError 
+import signal
 import sys
 from threading import Event, current_thread
 import threading
 import time
 
 from pymysql_utils.pymysql_utils import MySQLDB
-from redis_bus_python.bus_message import BusMessage
-from redis_bus_python.redis_bus import BusAdapter
-from redis_bus_python.redis_lib.exceptions import ConnectionError 
 
 
 class DataServer(object):
@@ -207,7 +208,11 @@ class DataServer(object):
                 raise IOError('Dataserver config file %s does not exist.')       
 
         self.conf_parser = ConfigParser.ConfigParser()
-        self.conf_parser.read(self.cnf_file_path)
+        self.relaod_config_file()
+        
+        # Catch SIGHUP signal and interpret it as
+        # command to reload configuration:
+        signal.signal(signal.SIGHUP, functools.partial(self.sighup_handler))
 
         # Whether cnt-c has shut us down:
         self.shutdown = False
@@ -233,19 +238,28 @@ class DataServer(object):
         
         self.logInfo('Data pump now listening for requests on SchoolBus.')
         
-        # Hang till cnt-C calls shutdown():
+        # Hang till keyboard interrupt (a.k.a. kill -2 <procId> in shell)
         while True:
-            time.sleep(1)
-            if self.shutdown:
-                return
-            # Check for streams that delivered all
-            # their data and clean up after them:
-            for (stream_id, one_thread) in self.threads.items():
-                if not one_thread.isAlive():
-                    del self.msg_queues[stream_id]
-                    del self.threads[stream_id]
+            try:
+                if self.shutdown:
+                    self.logInfo('Datapump has shut down successfully.')
+                    return
+                time.sleep(1)
+                # Check for streams that delivered all
+                # their data and clean up after them:
+                for (stream_id, one_thread) in self.threads.items():
+                    if not one_thread.isAlive():
+                        del self.msg_queues[stream_id]
+                        del self.threads[stream_id]
+            except KeyboardInterrupt:
+                self.do_shutdown()
+                continue
 
-    def shutdown(self):
+    def relaod_config_file(self):
+        self.conf_parser.read(self.cnf_file_path)
+
+    def do_shutdown(self):
+        self.logInfo('Shutting down data pump ...')
         # Stop all running streams:
         for (stream_id, one_thread) in self.threads.items():
             self.logInfo('Stopping stream %s' % stream_id)
@@ -531,6 +545,20 @@ class DataServer(object):
 
     def logDebug(self, msg):
         DataServer.logger.debug(msg)
+    
+    def sighup_handler(self, sig, frame):
+        '''
+        Catch SIGHUP, and reload the config file
+        in response.
+        
+        :param sig: signal being sent
+        :type sig: int
+        :param frame: ?
+        :type frame: ?
+        '''
+        self.logInfo('Reloading config file.')
+        self.relaod_config_file()
+        
 
 class OneStreamServer(threading.Thread):
     
@@ -873,16 +901,6 @@ class OneStreamServer(threading.Thread):
 #         self.it = csvreader
 #         self.send_all(max_to_send=max_to_send)
 
-
-# Note: function not method:
-def sig_handler(sig, frame):
-    # Close the SchoolBus, which will take down
-    # the main thread after it shut down any
-    # running streams:
-    print('Shutting down data pump ...')
-    server.shutdown()
-
-        
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]), 
                                      formatter_class=argparse.RawTextHelpFormatter)
@@ -979,11 +997,11 @@ if __name__ == '__main__':
                 except IOError:
                     # No .ssh subdir of user's home, or no mysql inside .ssh:
                     pwd = None
-        # We now have all we need to serve a MySQL query
-        server = DataServer(redis_server=redis_server, 
-                            configFile=None, 
-                            logFile=None, 
-                            logLevel=logging.INFO)
+    # We now have all we need to serve a MySQL query
+    server = DataServer(redis_server=redis_server, 
+                        configFile=None, 
+                        logFile=None, 
+                        logLevel=logging.INFO)
         
 #         server = MySQLDataServer(query,
 #                                  args.topic, 
