@@ -23,7 +23,7 @@
 #fbackButton { background-image : url("img/fastBackwardButtonTan60.png"); }
 #stopButton { background-image : url("img/stopButtonTan60x60.png"); }
 
-.clock { display : table-cell;
+.clock {
 	     vertical-align : top;
 	     horizontal-align: left;
 		 font-size : 24px;
