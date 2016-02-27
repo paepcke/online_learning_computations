@@ -721,6 +721,18 @@ function GradeVizUiController() {
 		}
 	}
 	
+	
+	/*---------------------------------
+	 * makeLegend
+	 *---------------*/
+	
+	my.makeLegend = function() {
+		var colors = colorbrewer.Reds[3];
+		var achievementScale = d3.scale.ordinal()
+		    					.range(colors)
+		    					.domain(['firstTry', 'eventually', 'perGlobal']);
+	}
+	
 //  -------------------------- Class-Level Initialization ----------------------------------
 
 	/*

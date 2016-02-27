@@ -156,6 +156,10 @@ function gradeCharter() {
 	my.yTitleOriginX = my.chartOriginX - my.yAxisTitleWidth,
 	my.yTitleOriginY = my.chartHeight - my.chartHeight/2;
 	
+	// Legend position:
+	my.legendXOffset = my.chartWidth;
+	my.legendYOffset = my.chartOriginY;
+	
 	//my.transitionDuration = 1500;
 	my.transitionDuration = 500;      // milliseconds
 	my.tooltipFadeoutDuration = 500;
@@ -409,6 +413,13 @@ function gradeCharter() {
 
 		 // Update clock: time/date of last data object:
 		 document.getElementById("clock").innerHTML = gradeObjs[gradeObjs.length -1 ].lastSubmit
+		 
+		 // Draw legend:
+         my.makeLegend(document.getElementsByClassName('localMeanLine')[0],
+        		       document.getElementsByClassName('gotItLine')[0],
+        		       document.getElementsByClassName('globalMeanLine')[0],
+        		       my.legendXOffset,
+        		       my.legendYOffset);
 	}
 	
 	/************************** Private Methods ********************/
@@ -1147,6 +1158,67 @@ function gradeCharter() {
 		}
 		return result;
 	}
+	
+	/*---------------------------------
+	 * makeLegend
+	 *---------------*/
+
+	/**
+	 * Creates a legend for the three achievement
+	 * lines: localMeanLine, gotItLine, and globalMeanLine.
+	 * Uses the legend.js package. The colors for the 
+	 * three lines must be passed into this function,
+	 * as well as the x,y translation amounts for the 
+	 * legend box.
+
+	 * :param firstTryColor: color for line "got it on first try" in 
+	 *            the form "#fee0d2".
+	 * :type firstTryColor: string 
+	 * :param eventuallyColor: color for line "got it after some try" in 
+	 *            the form "#fee0d2".
+	 * :type firstTryColor: string 
+	 * :param perGlobal: color for line "number of learners 
+	 * 			  who would have gotten it the problem was 
+	 *            like all the other: in the form "#fee0d2".
+	 * :type perGlobal: string
+	 * :param xOffset: number of pixels to move legend box
+	 * 			  along the x-axis.
+	 * :type xOffset: float
+	 * :param yOffset: number of pixels to move legend box
+	 * 			  along the y-axis.
+	 * :type yOffset: float
+	 *  
+	 */
+	
+	my.makeLegend = function(firstTryLine, eventuallyLine, perGlobalLine, xOffset, yOffset) {
+		// Get three colors 
+		var colors   = [firstTryLine.style.stroke,
+						eventuallyLine.style.stroke,
+						perGlobalLine.style.stroke
+						];
+		
+		my.achievementScale = d3.scale.ordinal()
+		     					.range(colors)
+		    					.domain(['Corrent on first try', 'Eventually correct', 'Global standard']);
+		d3.select('#legend')
+		     .append('svg');
+		var verticalLegend = d3.svg.legend()
+							   .labelFormat("none")
+							   .cellPadding(5)
+							   .orientation("vertical")
+							   .units("Achievement lines")
+							   .cellWidth(25)
+							   .cellHeight(18)
+							   .inputScale(my.achievementScale)
+							   .cellStepping(1);
+
+		d3.select("svg").append("g")
+						.attr("transform", `translate(${xOffset},${yOffset})`)
+						.attr("class", "legend")
+						.call(verticalLegend);
+	}
+
+	
 	
 	/************************** Top-Level Statements ********************/
 	
