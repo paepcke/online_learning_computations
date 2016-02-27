@@ -87,7 +87,7 @@
 				  }			  
 /* Avoid the blue outline when clicked: */	      
 .subscriptionBtn:focus { outline : none; } 
-.subscriptionBtn:active { background: teal; }
+.subscriptionBtn.active { background: teal; }
 
 /* Tooltip for when user clicks a gradebar: */
 .tooltip { position : absolute;
