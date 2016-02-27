@@ -323,7 +323,7 @@ function GradeVizUiController() {
 			return;
 		}
 		for (var i=0; i<btns.length; i++) {
-			btns.removeClass('active');
+			btns[i].removeClass('active');
 		}
 	}
 	
