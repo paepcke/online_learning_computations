@@ -54,11 +54,15 @@
 	   	   }
 	   
 .localMeanLine {stroke-width : 3px;
+				stroke : LightBlue;
+			   }
+			   
+.gotItLine     {stroke-width : 3px;
 				stroke : LightCoral;
 			   }
 			   
 .globalMeanLine {stroke-width : 3px;
-				stroke : LightBlue;
+				stroke : white;
 			    }
 
 
@@ -82,7 +86,8 @@
   				   background : rgba(166,137,59,0.3);  /* Light tan */
 				  }			  
 /* Avoid the blue outline when clicked: */	      
-.subscriptionBtn:focus { outline : none; }
+.subscriptionBtn:focus { outline : none; } 
+.subscriptionBtn:active { background: teal; }
 
 /* Tooltip for when user clicks a gradebar: */
 .tooltip { position : absolute;

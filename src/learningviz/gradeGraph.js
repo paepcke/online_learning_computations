@@ -329,6 +329,11 @@ function gradeCharter() {
 		    	    	 .attr("id", function(probId) {
 		    	    	 	return probId + 'localMeanLine';
 		    	    	 })   
+        enterSelection.append("line")
+		    	    	 .attr("class", "gotItLine")
+		    	    	 .attr("id", function(probId) {
+		    	    	 	return probId + 'gotItLine';
+		    	    	 })   
 		enterSelection.append("line")
 		    	    	 .attr("class", "globalMeanLine")
 		    	    	 .attr("id", function(probId) {
@@ -367,6 +372,7 @@ function gradeCharter() {
 						// total across all learner?
 						var numTakers   = my.probStats[probId].numAttempts;
 						var num1stSuccesses = my.probStats[probId].num1stSuccesses;
+						var numEventualSuccesses = my.probStats[probId].numEventualSuccesses;
 						// How many 1st-time successes would this problem
 						// have by the global average success rate?
 						var num1stSuccessesByGlobal = numTakers * my.mean1stSuccessRate;
@@ -377,7 +383,15 @@ function gradeCharter() {
 		 			  		.attr('x2', rect.x.baseVal.value + my.xScale.rangeBand())
 							.attr("y1", my.yScale(num1stSuccesses))
 							.attr("y2", my.yScale(num1stSuccesses));
-		 			  	
+
+		 			  	// Update the x coords of the local eventually-got-it mean line:
+		 			  	d3.select(this.parentNode).select(".gotItLine")
+		 			  		.attr('x1', rect.x.baseVal.value)
+		 			  		.attr('x2', rect.x.baseVal.value + my.xScale.rangeBand())
+							.attr("y1", my.yScale(numEventualSuccesses))
+							.attr("y2", my.yScale(numEventualSuccesses));
+
+		 			  	// Update the x coords of the global mean line:
 		 			  	d3.select(this.parentNode).select(".globalMeanLine")
 		 			  		.attr('x1', rect.x.baseVal.value)
 		 			  		.attr('x2', rect.x.baseVal.value + my.xScale.rangeBand())
@@ -478,6 +492,8 @@ function gradeCharter() {
 		var totalNumAttempts = my.probStats[probId].numAttempts;
 		var firstSuccesses = my.probStats[probId].num1stSuccesses;
 		var firstSuccessRate = my.probStats[probId].successRate;
+		var numEventualSuccesses = my.probStats[probId].numEventualSuccesses;
+		var numEventualSuccessRate = 100 * numEventualSuccesses / totalNumAttempts;
 		var partsStats = my.probStats[probId].partsCorrectness;
 		var partsTriesDistrib = my.probStats[probId].partsTriesDistrib;
 		var numParts = 'unknown';
@@ -492,6 +508,7 @@ function gradeCharter() {
 				`<span style="padding-right 100px">Problem:</span> ${probId}<br>
 				 Total number of attempts: <span id="numAttempts">${totalNumAttempts}</span><br>
 				 First-try-success: <span id="localSucRate">${firstSuccessRate == 100 ? 100 : firstSuccessRate.toPrecision(2)}</span>%<br>
+				 Eventual-success: <span id="eventualSucRate">${numEventualSuccessRate == 100 ? 100 : numEventualSuccessRate.toPrecision(2)}</span>%<br>
 				 Global first-try-success: <span id="globalSucRate">${100 * my.mean1stSuccessRate.toPrecision(2)}</span>%<br> 
 				 Number of parts: ${numParts}<br>`;
 				 if (typeof partsStats !== 'undefined') {
@@ -758,6 +775,7 @@ function gradeCharter() {
 				// How often this problem was successfully taken
 				// with one try:
 				my.probStats[probId].num1stSuccesses = 0;
+				my.probStats[probId].numEventualSuccesses = 0;
 				my.probStats[probId].successRate = 0;
 				my.probStats[probId].earliestSubmit = firstSubmit;
 				my.probStats[probId].mostRecentSubmit = lastSubmit;
@@ -850,6 +868,11 @@ function gradeCharter() {
 				
 				// Update the rate of 1st-time success across all problems:
 				my.mean1stSuccessRate = my.sum1stSuccesses/my.totalAttempts;
+			}
+			// If grade is 100%, update the number of learners who got
+			// the problem right, even if not on the first try:
+			if (percentGrade == 100.0) {
+				my.probStats[probId].numEventualSuccesses += 1;
 			}
 		}
 

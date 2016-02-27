@@ -14,7 +14,8 @@ TODO:
 '''
 
 import ConfigParser
-import Queue
+from Queue import Queue
+from Queue import Empty
 from __builtin__ import False
 import argparse
 import csv
@@ -29,12 +30,36 @@ from redis_bus_python.redis_bus import BusAdapter
 from redis_bus_python.redis_lib.exceptions import ConnectionError 
 import signal
 import sys
-from threading import Event, current_thread
 import threading
 import time
 
 from pymysql_utils.pymysql_utils import MySQLDB
+from datetime import datetime, timedelta
 
+
+class QueueWithEndpoint(Queue):
+    '''
+    Convenience subclass of Queue that adds
+    an 'endpoint' property. We can put into that
+    the thread object that listens to an instance
+    of this class.
+    
+    '''
+    
+    def __init__(self):
+        # Since Queue is an old-style class, must
+        # call its init method directly, i.e. not
+        # calling super():
+        Queue.__init__(self)
+        self._end_point = None
+        
+    @property
+    def endpoint(self):
+        return self._end_point
+    @endpoint.setter
+    def endpoint(self, new_endpoint):
+        self._end_point = new_endpoint
+        
 
 class DataServer(object):
     '''
@@ -88,12 +113,16 @@ class DataServer(object):
         - server publishes a response message to topic "tmp.<msgId>"
              The 'content' field of that response message will be:
              
-                    {"streamId" : <uuidStr>}
+                    {"streamId" : "<uuidStr>",
+                     "sourceId" : "sourceId",
                
-          The streamId will be the topic to which this server will publish
-          the data. That same streamId must also be included in any subsequent
+          The uuidStr is a streamId. That will be the topic to which this server will publish
+          the data once it receives a subsequent 'play' message.  
+          That same streamId must also be included in any subsequent
           request by the client that references the new stream. See cmd 
           summary above.
+          
+          The sourceId is included for convenience of the client.
           
         - client publishes a play message without the sourceId argument
           to 'dataserverControl'.    
@@ -146,7 +175,12 @@ class DataServer(object):
         databases: Grades for original un-partitioned database course 
         
     Both ':" and "=" are suported as separator, but for "=" no space
-    is permitted. See Python ConfigParser module for details. 
+    is permitted. See Python ConfigParser module for details. After
+    changing the configuration file, sending a SIGHUP signal to this
+    process will re-read the file. So the server does not need to be
+    taken down after changing the file.
+    
+    Signal SIGUSR1 will print current server status to stdout.
     
         
     Status or error messages from the data server to the client will
@@ -162,6 +196,15 @@ class DataServer(object):
     grade demo, see gradeGraph.js header for details of expected
     schema. 
     
+    A stream that is either paused or initiated, but not started
+    via a play command for more than DataServer.INACTIVITY_STREAM_KILL will
+    be terminated as if the client had issued a stop command. In this
+    case an error message will be sent to the client. Re-sending a 
+    pause command to a paused stream before DataServer.INACTIVITY_STREAM_KILL
+    of inactivity has passed will reset the watchdog. It is also
+    permitted to send a pause command to an initiated stream without
+    first sending a play command.
+    
     '''
 
     # Topic on which this server listens for control messages,
@@ -170,6 +213,12 @@ class DataServer(object):
     SERVER_CONTROL_TOPIC = "datapumpControl"
     INTER_BATCH_DELAY    = 2 # second
     STREAM_THREAD_SHUTDOWN_TIMEOUT = 1 # Second
+    
+    # Time after which a stream is closed if it is either
+    # paused or initialized, but not started with a play 
+    # command. When closure occurs, the client will be
+    # sent an error message:
+    INACTIVITY_STREAM_KILL = timedelta(days=2)
 
     mysql_default_port = 3306
     mysql_default_host = '127.0.0.1'
@@ -216,6 +265,9 @@ class DataServer(object):
 
         # Whether cnt-c has shut us down:
         self.shutdown = False
+        
+        # Catch SIGUSR1 and print current streams status:
+        signal.signal(signal.SIGUSR1, functools.partial(self.sigusr1_handler))
 
         try:
             self.bus = BusAdapter(host=redis_server)
@@ -248,9 +300,26 @@ class DataServer(object):
                 # Check for streams that delivered all
                 # their data and clean up after them:
                 for (stream_id, one_thread) in self.threads.items():
+                    # Stream sent all data?
                     if not one_thread.isAlive():
                         del self.msg_queues[stream_id]
                         del self.threads[stream_id]
+                    # Stream inactive for more than DataServer.INACTIVITY_STREAM_KILL?
+                    latest_activity = one_thread._latest_activity_time
+                    if (datetime.now() - latest_activity) > DataServer.INACTIVITY_STREAM_KILL:
+                        cmd_queue = self.msg_queues.get(stream_id, None)
+                        if cmd_queue is None:
+                            # Shouldn't happen...
+                            continue
+                        err_msg = "Paused stream '%s' terminated for inactivity; last command received at %s" %\
+                                    (one_thread.source_id, latest_activity.isoformat())
+                        self.logInfo('Closed stream %s (%s) for inactivity.' %
+                                     (one_thread.source_id, stream_id))
+                        self.returnError(stream_id, err_msg)
+                        cmd_queue.put('stop')
+                        continue
+                        
+                    
             except KeyboardInterrupt:
                 self.do_shutdown()
                 continue
@@ -316,10 +385,21 @@ class DataServer(object):
         if stream_id is None and not cmd in ['initStream', 'listSources']:
             self.logError('Received command %s without the required streamId field.' % cmd)
             return
-        elif not stream_id is None:
+        elif stream_id is not None:
             # Got a stream ID for a command that requires one. 
             # But do we recognize that stream id?
-            cmd_queue = self.msg_queues.get(stream_id, None)
+            try:
+                cmd_queue = self.msg_queues.get(stream_id, None)
+            except Exception as e:
+                err_msg = "Unknown stream ID passed to data pump in command '%s': %s" % (cmd, str(stream_id))
+                self.logError(err_msg)
+                # If the stream_id that the client passed to us 
+                # isn't even a string, we can't respond to them,
+                # because the stream_id is the return topic. So
+                # just log the problem here:
+                if type(stream_id) == 'string':
+                    self.returnError(stream_id, err_msg)
+                return
             if cmd_queue is None:
                 err_msg = 'Command %s with unrecognized stream ID %s.' % (cmd, stream_id)
                 self.logError(err_msg)
@@ -330,19 +410,19 @@ class DataServer(object):
             # In this context, play is the same as resuming
             # from a pause; if not currently paused, no effect:
             cmd_queue.put('resume')
-            self.logInfo('Play stream %s' % self.topic)
+            self.logInfo('Play stream %s:%s' % (self.get_source_id(cmd_queue), self.topic))
             return
         if cmd == 'pause':
             cmd_queue.put('pause')
-            self.logInfo('Pausing %s' % self.topic)
+            self.logInfo('Pausing %s:%s' % (self.get_source_id(cmd_queue), self.topic))
             return
         elif cmd == 'resume':
             cmd_queue.put('resume')
-            self.logInfo( 'Resuming %s' % self.topic)
+            self.logInfo( 'Resuming %s:%s' % (self.get_source_id(cmd_queue), self.topic))
             return
         elif cmd == 'stop':
             cmd_queue.put('stop')
-            self.logInfo('Received stop %s' % self.topic)
+            self.logInfo('Received stop %s:%s' % (self.get_source_id(cmd_queue), self.topic))
             return
         elif cmd == 'changeSpeed':
             try:
@@ -355,12 +435,12 @@ class DataServer(object):
                 self.returnError(stream_id, err_msg)
                 return
             else:
-                self.logInfo('Changing speed for topic %s to %s' % (self.topic, new_speed))
+                self.logInfo('Changing speed for %s:%s to %s' % (self.get_source_id(cmd_queue), self.topic, new_speed))
                 cmd_queue.put('changeSpeed,%s' % new_speed)
                 return
         elif cmd == 'restart':
             cmd_queue.put('restart')
-            self.logInfo('Received restart for streamId %s' % stream_id)
+            self.logInfo('Received restart for stream %s:%s' % (self.get_source_id(cmd_queue), stream_id))
             return
         
         elif cmd == 'listSources':
@@ -401,7 +481,7 @@ class DataServer(object):
                 return
             # Create a queue into which later incoming client requests
             # will be fed to the stream-sending thread:
-            cmd_queue = Queue.Queue()
+            cmd_queue = QueueWithEndpoint()
             self.msg_queues[stream_id] = cmd_queue
             self.topic = stream_id
 
@@ -413,6 +493,8 @@ class DataServer(object):
                 # parameter is the stream_id, which is included in case
                 # the topic convention is ever changed: 
                 new_thread = OneStreamServer(stream_id, stream_id, cmd_queue, source_id, self.conf_parser, self.bus)
+                # Remember which thread is listening to this queue:
+                cmd_queue.endpoint = new_thread
             except (ValueError, IOError, NotImplemented) as e:
                 self.logError(`e`)
                 self.returnError(stream_id, `e`)
@@ -433,7 +515,7 @@ class DataServer(object):
             new_thread.start()
             # Finally, initialize the content field of the response
             # message:
-            response_msg.content = '{"streamId" : stream_id}'
+            response_msg.content = '{"streamId" : "%s", "sourceId" : "%s"}' % (stream_id, source_id)
             self.bus.publish(response_msg)
             return
 
@@ -441,6 +523,17 @@ class DataServer(object):
             # Unrecognized command:
             self.logError('Command not recognized in message %s' % str(controlMsg.content))
             return
+
+    def get_source_id(self, queue):
+        '''
+        Given a QueueWithEndpoint instance, grab the
+        thread that listens to that queue, and ask it
+        for the source id it is serving out.
+        
+        :param queue: queue to the thread whose source id is sought.
+        :type queue: QueueWithEndpoint
+        '''
+        return queue.endpoint.source_id
 
 
     def create_list_source_info(self):
@@ -506,7 +599,7 @@ class DataServer(object):
         
         msg = BusMessage()
         msg.topicName = streamId
-        msg.content = '{"error" : %s)' % errorMsg
+        msg.content = json.dumps({"error" : '%s'"" % errorMsg})
         self.bus.publish(msg)
 
     def setupLogging(self, loggingLevel, logFile):
@@ -525,10 +618,9 @@ class DataServer(object):
             # Create console handler:
             handler = logging.StreamHandler()
         handler.setLevel(loggingLevel)
-#         # create formatter and add it to the handlers
-#         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-#         fh.setFormatter(formatter)
-#         ch.setFormatter(formatter)
+        # create formatter and add it to the handlers
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
         # Add the handler to the logger
         DataServer.logger.addHandler(handler)
         
@@ -558,7 +650,14 @@ class DataServer(object):
         '''
         self.logInfo('Reloading config file.')
         self.relaod_config_file()
-        
+
+    def sigusr1_handler(self, sig, frame):
+        for (stream_id, one_thread) in self.threads.items():
+            self.logInfo('Stream %s (id %s)' % (one_thread.source_id), stream_id)
+            self.logInfo('    Sent %s row(s)' % one_thread._sent_sofar)
+            self.logInfo('    State: %s' % 'paused' if one_thread.paused else 'running')
+            self.logInfo('    Last received command at %s' % one_thread._latest_activity_time.isoformat())
+            self.logInfo('------')
 
 class OneStreamServer(threading.Thread):
     
@@ -572,6 +671,14 @@ class OneStreamServer(threading.Thread):
         find the CSV file to stream to the bus, or the MySQL
         query whose results to stream. The stream_id is the
         id under which the main thread finds this thread.
+        
+        Thread keeps track of how many rows it has sent
+        (property _sent_sofar), and the datetime of the most
+        recent command from the client (property _latest_activity_time).
+        
+        The main thread will periodically check whether 
+        the thread's stream has been initialized, but not played
+        in more than 
         
         :param topicName: topic to which stream will be published.
         :type topicName: str
@@ -593,8 +700,8 @@ class OneStreamServer(threading.Thread):
         
         self.topic_name = topic_name
         self.cmd_queue = cmd_queue
-        self.source_id = source_id
-        self.stream_id = stream_id
+        self._source_id = source_id
+        self._stream_id = stream_id
         self.conf_parser = conf_parser
         self.bus = bus
         self.pausing   = False
@@ -607,6 +714,11 @@ class OneStreamServer(threading.Thread):
         self.max_to_send = -1
         self.source_iterator = None
         
+        # How many lines sent to far:
+        self._sent_sofar = 0
+        # Last time heard from client: 
+        self._latest_activity_time = datetime.now()
+        
         self.source_iterator = self.get_source_iterator()
         
     @property
@@ -617,6 +729,18 @@ class OneStreamServer(threading.Thread):
     @stream_id.setter
     def stream_id(self, val):
         self._stream_id = val
+        
+    @property
+    def source_id(self):
+        return self._source_id
+
+    @property
+    def sent_sofar(self):
+        return self._sent_sofar
+    
+    @property
+    def latest_activity_time(self):
+        return self._latest_activity_time
 
     def stop(self):
         # Pretend the client issued a stop command:
@@ -704,9 +828,9 @@ class OneStreamServer(threading.Thread):
     
     def run(self):
         
-        row_count = 0
+        self._sent_sofar = 0
         tuple_dict_batch = [] #@UnusedVariable
-        self.logInfo('Starting to publish data to %s...' % self.topic_name)
+        self.logInfo("Ready to publish '%s' to %s..." % (self.source_id, self.topic_name))
         try:
             # Note: Can't use "for info in self.source_iterator"
             #       for the loop, b/c we want the ability to restart
@@ -716,6 +840,7 @@ class OneStreamServer(threading.Thread):
                 try:
                     # Next array of result elements (from CSV file or MySQL query):
                     info = self.source_iterator.next()
+                    self._sent_sofar += 1
                 except StopIteration:
                     # Sources is exhausted; quit this thread:
                     self.logInfo("Stream '%s' is done." % self.source_id)
@@ -724,6 +849,10 @@ class OneStreamServer(threading.Thread):
                 # Check for control command from client:
                 try:
                     cmd = self.cmd_queue.get_nowait()
+                    
+                    # Update 'last heard from client':
+                    self._latest_activity_time = datetime.now()
+                    
                     # Do something:
                     if cmd == 'pause':
                         self.pausing = True
@@ -742,19 +871,21 @@ class OneStreamServer(threading.Thread):
                             self.inter_batch_delay = new_speed
                     elif cmd == 'restart':
                         self.source_iterator = self.get_source_iterator()
+                        self._sent_sofar = 0;
+                        continue
                         
-                except Queue.Empty:
+                except Empty:
                     # No new control command:
                     pass
                 
                 if len(info) == 0:
                     # Empty line in CSV file:
                     continue
-                if self.max_to_send > -1 and row_count >= self.max_to_send:
+                if self.max_to_send > -1 and self._sent_sofar >= self.max_to_send:
                     return                
                 tuple_dict_batch.append(self.make_data_dict(info))
                 if len(tuple_dict_batch) >= self.batch_size or\
-                    len(tuple_dict_batch) + row_count >= self.max_to_send:
+                    len(tuple_dict_batch) + self._sent_sofar >= self.max_to_send:
                     
                     if self.pausing:
                         # Wait for 'resume' or 'stop' message:
@@ -776,7 +907,7 @@ class OneStreamServer(threading.Thread):
                     # may work, or not. Should...but who knows: 
                     with OneStreamServer.PUBLISH_LOCK:
                         self.bus.publish(bus_msg)
-                    row_count += 1
+                    self._sent_sofar += len(tuple_dict_batch)
                     tuple_dict_batch = []
 
                     time.sleep(self.inter_batch_delay)
@@ -785,7 +916,7 @@ class OneStreamServer(threading.Thread):
                     # Continue filling a batch:
                     continue
         finally:
-            self.logInfo("Published %s data rows." % row_count)
+            self.logInfo("Published %s data rows." % self._sent_sofar)
             self.logInfo("Stream '%s' is done." % self.source_id)
     
     def make_data_dict(self, content_line_arr):
