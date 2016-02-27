@@ -14,9 +14,73 @@
  * all incoming grades tuples to that visualization instance.
  */
 
+
+	/* ------------------------------------ Helper Classes ------------------*/
+
+/*
+ * Two-way mapping.
+ */
+
+function TwoWayMap(map) {
+
+	var my = {};
+	my.map = null;
+	my.reverseMap = null;
+	
+	my.init = function(map) {
+		my.map = map;
+		my.reverseMap = {};
+		for(var key in my.map){
+			var value = my.map[key];
+			my.reverseMap[value] = key;   
+		}
+	}
+
+	my.get = function(key) { 
+		return my.map[key]; 
+	};
+
+	
+	my.revGet = function(key){ 
+		return my.reverseMap[key]; 
+	};
+	
+	
+	my.put = function(key,val){
+		my.map[key] = val;
+		my.reverseMap[val] = key;
+	};
+	
+	my.delete = function(key){
+		var val = my.map[val];
+		delete my.map[key];
+		delete my.reverseMap[val];
+	}
+	
+	my.revDelete = function(val){
+		var key = my.reverseMap[val];
+		delete my.reverseMap[val];
+		delete my.map[key];
+	}
+	
+	var that = {}
+	that.init = my.init;
+	that.get  = my.get;
+	that.revGet = my.revGet;
+	that.put = my.put;
+	that.delete = my.delete;
+	that.revDelete = my.revDelete;
+	
+	my.init(map);
+	
+	return that;
+}
+     
+	/* ------------------------------------ Main Class ------------------*/
+
 function GradeVizUiController() {
 
-	/* ------------------------------------ Constants ------------------*/
+	/* ------------------------------------ Constants and Class Variables ------------------*/
 
 	/**
 	 * Enforce singleton: official way to get the
@@ -41,6 +105,13 @@ function GradeVizUiController() {
 	my.currStreamId = null;
 	my.currSourceId = null;
 
+	/* Getting from an opaque streamID to the 
+	   corresponding human-readable topic.
+	   Maintained in subscriptionReceipt()
+	   and stop button event handler:
+	 */ 
+	my.streamId2SourceId = TwoWayMap({});
+	
 	my.datapumpControlTopic = "datapumpControl";
 	my.datapumpCmds = ['initStream',
 	                   'play',
@@ -313,17 +384,32 @@ function GradeVizUiController() {
 	 *---------------*/
 
 	/**
-	 * Go through all subscribe buttons and make
-	 * them lose the 'active' state:
+	 * If topic is provided, find the corresponding
+	 * subscribe button and deactivate it. If sourceId
+	 * is omitted, deactivate all subscribe buttons.
+	 * 
+	 * :param sourceId: if provided, the topic whose button is to be deactivated.
+	 * :type sourceId: string
 	 */
 	
-	my.deactivateSubscribeButtons = function() {
-		var btns = document.getElementsByClassName('active');
-		if (btns === null) {
-			return;
-		}
-		for (var i=0; i<btns.length; i++) {
-			btns[i].removeClass('active');
+	my.deactivateSubscribeButtons = function(sourceId) {
+		
+		if (typeof sourceId === 'undefined') {
+			var btns = document.getElementsByClassName('active');
+			if (btns === null) {
+				return;
+			}
+			for (var i=0; i<btns.length; i++) {
+				btns[i].removeClass('active');
+			}
+		} else {
+			// Only deactivate one button:
+			// Get the stream's corresponding subscribe
+			// button, and ensure it's turned inactive:
+			var subscribeBtn = document.getElementById(sourceId);
+			if (subscribeBtn !== null) {
+				subscribeBtn.removeClass('active');   
+		   }
 		}
 	}
 	
@@ -358,7 +444,9 @@ function GradeVizUiController() {
 	 * has received a 'play' command from us. Until then, the
 	 * stream is paused. We subscribe here to the streamId
 	 * as the topic. For convenience, the server also echoes
-	 * the name of the source stream:
+	 * the name of the source stream. We use the streamId2SourceId
+	 * to retain a map from the opaque streamId to the more readable
+	 * corresponding source id.
 	 * 
 	 * :param streamIdSpec: response of the form 
 	 *      {"streamId" : <someId>,
@@ -380,6 +468,7 @@ function GradeVizUiController() {
 		   }
 		   my.bus.subscribeToTopic(my.currStreamId);
 		   my.setPauseState('paused');
+		   my.streamId2SourceId.put(my.currStreamId, my.currSourceId); 
 		   my.activateSubscribeButton(my.currSourceId);
 	}
 	
@@ -402,10 +491,9 @@ function GradeVizUiController() {
 	my.unsubscribe = function(topic) {
 		if (typeof topic === 'undefined') {
 			topic = my.currStreamId;
-		} else {
-			my.currStreamId = topic;
 		}
 		my.bus.unsubscribeFromTopic(topic);
+		my.deactivateSubscribeButtons(topic);
 		my.currStreamId = null;
 		my.currSourceId = null;
 	}
@@ -549,7 +637,13 @@ function GradeVizUiController() {
 			}
 			if (confirm("This action will stop the stream. Do it?")) {
 				my.bus.publish(my.makeDatapumpRequest('stop'), my.datapumpControlTopic);
+				my.deactivateSubscribeButtons(my.currSourceId);
 				my.unsubscribe();
+				// Remove the streamId-->sourceId from the map relating the two:
+				my.streamId2SourceId.delete(my.currStreamId);
+				
+				// Totally brutal: Just reload the page to start fresh:
+				location.reload();
 			}
 		});
 
