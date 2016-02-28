@@ -213,6 +213,9 @@ function gradeCharter() {
 					 .append("g")
 					 .attr("transform", "translate(" + my.margin.left + "," + my.margin.top + ")");
 		
+		// Create an svg in div #legendDiv that holds the 
+		// achievement lines color legend
+		my.makeLegend('localMeanLine', 'gotItLine', 'globalMeanLine');
 		
 		my.xScale = d3.scale.ordinal()
 		    .rangeRoundBands([my.chartOriginX, my.chartWidth], .2,.1);		
@@ -415,11 +418,8 @@ function gradeCharter() {
 		 document.getElementById("clock").innerHTML = gradeObjs[gradeObjs.length -1 ].lastSubmit
 		 
 		 // Draw legend:
-         my.makeLegend(document.getElementsByClassName('localMeanLine')[0],
-        		       document.getElementsByClassName('gotItLine')[0],
-        		       document.getElementsByClassName('globalMeanLine')[0],
-        		       my.legendXOffset,
-        		       my.legendYOffset);
+		 d3.select('#legend')
+		        .call(my.achievementLegend);
 	}
 	
 	/************************** Private Methods ********************/
@@ -1171,16 +1171,14 @@ function gradeCharter() {
 	 * as well as the x,y translation amounts for the 
 	 * legend box.
 
-	 * :param firstTryColor: color for line "got it on first try" in 
-	 *            the form "#fee0d2".
-	 * :type firstTryColor: string 
-	 * :param eventuallyColor: color for line "got it after some try" in 
-	 *            the form "#fee0d2".
-	 * :type firstTryColor: string 
-	 * :param perGlobal: color for line "number of learners 
+	 * :param firstTryLineClass: class name for for line "got it on first try"
+	 * :type firstTryLineClass: string 
+	 * :param eventuallyLineClass: class for line "got it after some try"
+	 * :type eventuallyLineClass: string 
+	 * :param perGlobalLineClass: class for line "number of learners 
 	 * 			  who would have gotten it the problem was 
-	 *            like all the other: in the form "#fee0d2".
-	 * :type perGlobal: string
+	 *            like all the other"
+	 * :type perGlobalClass: string
 	 * :param xOffset: number of pixels to move legend box
 	 * 			  along the x-axis.
 	 * :type xOffset: float
@@ -1190,19 +1188,19 @@ function gradeCharter() {
 	 *  
 	 */
 	
-	my.makeLegend = function(firstTryLine, eventuallyLine, perGlobalLine, xOffset, yOffset) {
+	my.makeLegend = function(firstTryLineClass, eventuallyLineClass, perGlobalLineClass, xOffset, yOffset) {
 		// Get three colors 
-		var colors   = [firstTryLine.style.stroke,
-						eventuallyLine.style.stroke,
-						perGlobalLine.style.stroke
+		var colors   = [my.getCssPropertyValue(firstTryLineClass, 'stroke'),
+						my.getCssPropertyValue(eventuallyLineClass, 'stroke'),
+						my.getCssPropertyValue(perGlobalLineClass, 'stroke')
 						];
 		
 		my.achievementScale = d3.scale.ordinal()
 		     					.range(colors)
 		    					.domain(['Corrent on first try', 'Eventually correct', 'Global standard']);
-		d3.select('#legend')
+		d3.select('#legendDiv')
 		     .append('svg');
-		var verticalLegend = d3.svg.legend()
+		my.achievementLegend = d3.svg.legend()
 							   .labelFormat("none")
 							   .cellPadding(5)
 							   .orientation("vertical")
@@ -1213,11 +1211,84 @@ function gradeCharter() {
 							   .cellStepping(1);
 
 		d3.select("svg").append("g")
+		                .attr('id', "legend")
 						.attr("transform", `translate(${xOffset},${yOffset})`)
 						.attr("class", "legend")
-						.call(verticalLegend);
+						.call(my.achievementLegend);
 	}
 
+	
+	/*---------------------------------
+	 * getStyle
+	 *---------------*/
+	
+	/**
+	 * Given a class name, get the entire CSS 
+	 * style string.
+	 * 
+	 * :param className: name of CSS class whose style to get.
+	 * :type className: string
+	 * :return: CSS style string, such as: ".myClass { width  : 5px; stroke : white;}" 
+	 */
+	
+	my.getStyle = function getStyle(className) {
+		var classes = document.styleSheets[0].rules
+					|| document.styleSheets[0].cssRules;
+		for (var x = 0; x < classes.length; x++) {
+			if (classes[x].selectorText == className) {
+				return (classes[x].cssText) ? classes[x].cssText
+						: classes[x].style.cssText;
+			}
+		}
+	}
+
+	/*---------------------------------
+	 * getPropertyFromCss
+	 *---------------*/
+	
+	/**
+	 * Given the class of a line whose 'stroke' is styled in CSS,
+	 * return that color. Example:
+	 *     .myClass { width  : 5px;
+	 *                stroke : white; 
+	 *               }
+	 * Function would return "white". 
+	 * 
+	 * :param className: class name of the line-style, including leading dot.
+	 * :type className: string
+	 * :param property: name of CSS property whose value is wanted.
+	 * :type property: string
+	 * :return: string of the CSS property  value
+	 * :rtype: {string | undefined }
+	 */
+	
+	my.getCssPropertyValue = function(className, property) {
+		var style = my.getStyle(className);
+		if (typeof style === 'undefined') {
+			return undefined;
+		}
+		// Now have something like ".className { width : 5px; color : red }"
+		// Get ['.className, ' width : 5px; color : red }']
+		var styleArr = style.split('{');
+		if (styleArr.length === 1) {
+			// Not a well-formed CSS rule
+			return undefined;
+		}
+		style = styleArr[1].trim();
+		if (style[style.length - 1] != '}') {
+			// Not a well-formed CSS rule
+			return undefined;
+		}
+		// Now have: "width : 5px; color : red"
+		//       or: "width : 5px; color : red;"
+		// Get array ["color: red", " red"]
+		var re = new RegExp("[\s;]*" + property + "[\s]*:[\s]*([^\s;}]*)");
+		var resArr = re.exec(style);
+		if (resArr != null && resArr.length > 1) {
+				var value = resArr[1].trim();
+		}
+			return value;
+		}
 	
 	
 	/************************** Top-Level Statements ********************/

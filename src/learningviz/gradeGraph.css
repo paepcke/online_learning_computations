@@ -64,6 +64,9 @@
 				stroke : white;
 			    }
 
+.emptyCell { display : table-cell; }
+
+.legend { display : table-cell; }
 
 .subscribeGrp { display : table-cell; 
 			    vertical-align : top;
