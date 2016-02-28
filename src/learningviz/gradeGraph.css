@@ -32,7 +32,7 @@
 		 opacity : 0.50;
 	 }
 
-.chartAndSubscribeBtns { display : table-row; }	 
+.chartLegendAndSubscribeBtns { display : table-row; }	 
 .chart { display : table-cell;
 		 width : 50%; 
 	 	 margin : auto;
@@ -78,14 +78,14 @@
 .mutLegendBG    { fill : rgba(166,137,59,0.3);  /* Light tan */
 				}
 
-.subscribeGrp { display : table-cell; 
+.subscribeGrp { /* **** display : table-cell; */ 
 			    vertical-align : top;
-			    padding : 5px;
 			  }
 .listSourcesBtn {
 		         width : 30%;
+		         margin : 2px;
+		         margin-left : 12px;
   				 box-sizing : border-box;
-  				 margin : 2px;
   				 background : rgb(166,137,59);  /* Dark brown */
   				 color : white;
 				}			  
@@ -93,8 +93,9 @@
 .listSourcesBtn:focus { outline : none; }
 				
 .subscriptionBtn { width : 30%;
-  				   box-sizing : border-box;
   				   margin : 2px;
+		           margin-left : 12px;
+  				   box-sizing : border-box;
   				   background : rgba(166,137,59,0.3);  /* Light tan */
 				  }			  
 /* Avoid the blue outline when clicked: */	      
@@ -103,15 +104,13 @@
 
 /* Tooltip for when user clicks a gradebar: */
 .tooltip { position : absolute;
-           /* background : rgba(166,137,59,0.3);*/  /* Light tan */
-	   /* background : rgb(166,137,59);*/       /* Dark brown */
            background : rgb(194,224,176);         /* Light Green */
-	   width : auto;                          /* Expand to text width */
-	   height : auto;
-	   padding : 8px;
-	   border-radius : 8px;
-	   /* box-shadow: 5px 5px 5px #888888; */ /* Soft drop shadow*/
-	   box-shadow: 0px 0px 3pt 1pt black;     /* Simulated outline but hugging the shape */
+		   width : auto;                          /* Expand to text width */
+		   height : auto;
+		   padding : 8px;
+		   border-radius : 8px;
+		   /* box-shadow: 5px 5px 5px #888888; */ /* Soft drop shadow*/
+		   box-shadow: 0px 0px 3pt 1pt black;     /* Simulated outline but hugging the shape */
 	 }
 
 /* Tooltip for when user brushes over a gradebar: */

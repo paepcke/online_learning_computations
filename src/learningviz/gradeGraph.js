@@ -238,8 +238,15 @@ function gradeCharter() {
 		var drag = d3.behavior.drag()
         			.on("drag", function() {
         				var tooltipRect = this.getBoundingClientRect();
+        				//********
+        				console.log('Before: top' + this.style.top + 'dy: ' + d3.event.dy);
+        				//********
         			    this.style.left = (tooltipRect.left + d3.event.dx)+'px';
         			    this.style.top  = (tooltipRect.top  + d3.event.dy)+'px';
+        				//********
+        				console.log('After top: ' +  this.style.top);
+        				//********
+        			    
         			});		
 
 		// Make tooltip div draggable:
@@ -1210,7 +1217,8 @@ function gradeCharter() {
 		// div that is waiting for the legend; then add
 		// the legend:
 		d3.select('#legendDiv')
-					    .append('svg')
+					    //****.append('svg')
+						.insert('svg', ":first-child")
 					    .append("g")
 					    .attr("transform", "translate(15,50)")
 						.call(my.achievementLegend);

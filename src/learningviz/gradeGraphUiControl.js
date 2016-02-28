@@ -240,7 +240,7 @@ function GradeVizUiController() {
 				// Caller must specify the source ID:
 				var sourceId = cmdArgs.sourceId;
 			} catch(err) {
-				my.err_msg('Datapump command initStream requires a sourceId in the cmdArgs of the makeDatapumpRequest() call.');
+				my.errMsg('Datapump command initStream requires a sourceId in the cmdArgs of the makeDatapumpRequest() call.');
 				return null;
 			}
 			retObj.sourceId = cmdArgs.sourceId;
@@ -256,7 +256,7 @@ function GradeVizUiController() {
 			try {
 				retObj.arg = cmdArgs.newSpeed;
 			} catch(err) {
-				my.err_msg("Datapump command changeSpeed needs a newSpeed field in the cmdArgs of the makeDatapumpRequest() call.");
+				my.errMsg("Datapump command changeSpeed needs a newSpeed field in the cmdArgs of the makeDatapumpRequest() call.");
 				return null;
 			}
 		}
@@ -750,8 +750,8 @@ function GradeVizUiController() {
 		my.bus = instance;
 		my.kickoff();
 	},
-	function(err_msg) {
-		alert(err_msg);
+	function(errMsg) {
+		alert(errMsg);
 	}
 	);
 	
