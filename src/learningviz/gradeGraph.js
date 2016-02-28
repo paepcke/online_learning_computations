@@ -215,7 +215,7 @@ function gradeCharter() {
 		
 		// Create an svg in div #legendDiv that holds the 
 		// achievement lines color legend
-		my.makeLegend('localMeanLine', 'gotItLine', 'globalMeanLine');
+		my.makeLegend('.localMeanLine', '.gotItLine', '.globalMeanLine');
 		
 		my.xScale = d3.scale.ordinal()
 		    .rangeRoundBands([my.chartOriginX, my.chartWidth], .2,.1);		
@@ -1179,41 +1179,40 @@ function gradeCharter() {
 	 * 			  who would have gotten it the problem was 
 	 *            like all the other"
 	 * :type perGlobalClass: string
-	 * :param xOffset: number of pixels to move legend box
-	 * 			  along the x-axis.
-	 * :type xOffset: float
-	 * :param yOffset: number of pixels to move legend box
-	 * 			  along the y-axis.
-	 * :type yOffset: float
-	 *  
 	 */
 	
-	my.makeLegend = function(firstTryLineClass, eventuallyLineClass, perGlobalLineClass, xOffset, yOffset) {
-		// Get three colors 
+	my.makeLegend = function(firstTryLineClass, eventuallyLineClass, perGlobalLineClass) {
+		// Get the three colors that are specified in
+		// gradeGraph.css for the three achievement lines:
 		var colors   = [my.getCssPropertyValue(firstTryLineClass, 'stroke'),
 						my.getCssPropertyValue(eventuallyLineClass, 'stroke'),
 						my.getCssPropertyValue(perGlobalLineClass, 'stroke')
 						];
 		
+		// Create an ordinal scale mapping legend text
+		// entries (the domain) to the three colors:
 		my.achievementScale = d3.scale.ordinal()
 		     					.range(colors)
 		    					.domain(['Corrent on first try', 'Eventually correct', 'Global standard']);
-		d3.select('#legendDiv')
-		     .append('svg');
+		
+		// Create the legend object:
 		my.achievementLegend = d3.svg.legend()
 							   .labelFormat("none")
-							   .cellPadding(5)
+							   .cellPadding(5)             // Space between lines
 							   .orientation("vertical")
 							   .units("Achievement lines")
-							   .cellWidth(25)
-							   .cellHeight(18)
+							   .cellWidth(25)              // color swatch width
+							   .cellHeight(18)             // color swatch height
 							   .inputScale(my.achievementScale)
-							   .cellStepping(1);
-
-		d3.select("svg").append("g")
-		                .attr('id', "legend")
-						.attr("transform", `translate(${xOffset},${yOffset})`)
-						.attr("class", "legend")
+							   .cellStepping(10);
+		
+		// Put an svg with a contained group into the
+		// div that is waiting for the legend; then add
+		// the legend:
+		d3.select('#legendDiv')
+					    .append('svg')
+					    .append("g")
+					    .attr("transform", "translate(15,50)")
 						.call(my.achievementLegend);
 	}
 
