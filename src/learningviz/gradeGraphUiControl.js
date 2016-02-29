@@ -101,6 +101,15 @@ function GradeVizUiController() {
 	
 	
 	my.PAUSE_BUTTON_PULSE_PERIOD = 1000;
+	
+	// Before forcefully reloading the page,
+	// wait a bit to allow prior cleanup 
+	// bus commands to go across. We should
+	// re-implement to never use reload() as
+	// a radical cleanup of data structures,
+	// but to carefully empty all those 
+	// structures directly:
+	my.RELOAD_DELAY = 500; // milliseconds.
 
 	my.currStreamId = null;
 	my.currSourceId = null;
@@ -329,9 +338,7 @@ function GradeVizUiController() {
 		 * to buildSubscribeButtons().
 		 */
 		var currSavedFunc = my.getErrCallback();
-		my.setErrCallback(function(errMsg) {
-			alert('Could not reach data pump; is it running?');
-		})
+		my.setErrCallback(my.errMsg);
 		my.bus.publish(my.makeDatapumpRequest("listSources"),
 				       my.datapumpControlTopic,
 				       {"syncCallback" : function(returnVal) {
@@ -421,9 +428,13 @@ function GradeVizUiController() {
 					   if (typeof Storage !== 'undefined') {
 						   sessionStorage.initialSourceId = sourceId;
 					   }
+					   
 					   // Wipe out all state and start over. The kickoff()
-					   // method will immediately subscribe to the new source:
-					   location.reload();
+					   // method will immediately subscribe to the new source.
+					   // But give the above unsubscribe a chance to complete
+					   // first:
+					   setTimeout(function() {location.reload()}, my.RELOAD_DELAY);
+
 				   } else {
 					   return;
 				   }
@@ -608,6 +619,14 @@ function GradeVizUiController() {
 		my.currStreamId = null;
 		my.currSourceId = null;
 	}
+
+	/*---------------------------------
+	 * defaultErrMsg 
+	 *---------------*/
+	
+	my.errMsg = function(msg) {
+		alert(msg);
+	}
 	
 	/*---------------------------------
 	 * setErrCallback  
@@ -747,14 +766,14 @@ function GradeVizUiController() {
 				return;
 			}
 			if (confirm("This action will stop the stream. Do it?")) {
-				my.bus.publish(my.makeDatapumpRequest('stop'), my.datapumpControlTopic);
 				my.deactivateSubscribeButtons(my.currSourceId);
+				// The unsubscribe() will send a stop cmd to the dataserver:
 				my.unsubscribe();
 				// Remove the streamId-->sourceId from the map relating the two:
 				my.streamId2SourceId.delete(my.currStreamId);
-				
-				// Totally brutal: Just reload the page to start fresh:
-				location.reload();
+				// Totally brutal: Just reload the page to start fresh,
+				// after a moment to allow the unsubscribe to complete:
+				setTimeout(function() {location.reload()}, my.RELOAD_DELAY);
 			}
 		});
 
