@@ -230,7 +230,7 @@ function GradeVizUiController() {
 		
 		var retObj = {'cmd' : cmd};
 		if (cmd === 'listSources') {
-			// Not arg required:
+			// No arg required:
 			return retObj;
 		}
 		
@@ -280,6 +280,16 @@ function GradeVizUiController() {
 		 */
 		my.bus.setMsgCallback(my.gradeReceiver);
 		my.attachAllEventListeners();
+		
+		// Tooltip that appears when brushing over a
+		// subscription buttons:
+		my.subscribeBtnTooltip = d3.select("body").append("div")
+			.attr("class", "brushTooltip")
+			.attr("id", "subscribeButtonBrushTooltip")
+			.attr("display", "inline")
+			.style("visibility", "hidden");
+		
+		
 		my.getAvailableSources();
 		// Check whether a prior reload() left post-mortem
 		// instructions for a stream to apply to. Happens
@@ -362,15 +372,32 @@ function GradeVizUiController() {
 			if (typeof sourceId === 'undefined') {
 				continue;
 			}
+			// Grab the source information text if available:
+			var sourceInfo = srcIdAndInfo.info;
+			if (typeof sourceInfo === 'undefined') {
+				sourceInfo = "";
+			}
 
 			// New subscribe button:
 			var subscribeButton =  document.createElement("BUTTON"); // Create a <button> element
 			var btnLabel = document.createTextNode(sourceId);
 			subscribeButton.appendChild(btnLabel);
 			subscribeButton.id = sourceId;
+			subscribeButton.description = sourceInfo;
 			subscribeButton.setAttribute("class", "subscriptionBtn");
+						
 			subscribeBtnDiv.appendChild(subscribeButton);
 			subscribeBtnDiv.appendChild(document.createElement('br'))
+
+			// Add a brush-tooltip that appears while brushing
+	        // over the button:
+	        subscribeButton.addEventListener("mouseenter", function(event) {
+	        							  my.brushIntoSubscribeBtn(event);
+	                                     });
+	        subscribeButton.addEventListener("mouseout", function(event) {
+	        				              my.brushOutSubscriptionBtn(event);
+	                                   });
+			
 			subscribeButton.addEventListener("click", function(event) {
 				var sourceId = this.id;
 				if (sourceId === my.currSourceId) {
@@ -410,6 +437,53 @@ function GradeVizUiController() {
 			})
 		}
 	}
+	
+	/*---------------------------------
+	 * brushIntoSubscribeBtn
+	 *---------------*/
+	
+	/**
+	 * Event handler when mouse brushes over a subscribe button.
+	 * If the event button has a non-empty 'description' property,
+	 * its value is assumed to be text. That text will be shown
+	 * in a popup.
+	 */
+
+	my.brushIntoSubscribeBtn = function(event) {
+		var subscribeButton = event.target;
+		var sourceInfo = subscribeButton.description;
+		if (sourceInfo.length === 0) {
+			// No info to show.
+			return;
+		}
+		
+		var mouseX = event.pageX;
+		var mouseY = event.pageY;
+		var tooltipHeight = my.subscribeBtnTooltip.style.minHeight;
+		my.subscribeBtnTooltip.text(sourceInfo);
+		my.subscribeBtnTooltip
+			.style("left", (mouseX - 34) + "px")
+			//.style("top", (mouseY - 12) + "px")
+			.style("top", (mouseY - 60) + "px")
+			.style('visibility', 'visible');
+		
+		my.subscribeBtnTooltip.style('visibility', 'visible');
+		
+	}
+	
+	
+	/*---------------------------------
+	 * brushOutSubscriptionBtn
+	 *---------------*/
+	
+	/**
+	 * Event handler when mouse leaves a subscription button.
+	 * the subscription tooltip will be made to disappear...poof!
+	 */
+	
+	my.brushOutSubscriptionBtn = function(event) {
+		my.subscribeBtnTooltip.style('visibility', 'hidden');
+	}	
 	
 	/*---------------------------------
 	 * deactivateSubscribeButtons 

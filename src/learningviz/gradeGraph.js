@@ -357,8 +357,6 @@ function gradeCharter() {
         // Add a brush-tooltip that appears while brushing
         // over a gradebar, and a mousedown for selecting
         // gradebars:
-        
-        // Add tooltip-showing when user clicks on a bar:
         enterSelection.on("mouseenter", function() {
         					my.brushIn(d3.event);
         				    })
