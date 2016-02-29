@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 '''
 Created on Dec 31, 2015
 
@@ -302,6 +303,10 @@ class DataServer(object):
                 for (stream_id, one_thread) in self.threads.items():
                     # Stream sent all data?
                     if not one_thread.isAlive():
+                        err_msg = "Stream '%s' has sent all data." % stream_id
+                        self.logInfo('Stream %s has sent all data; closed down.' % stream_id)
+                        self.returnError(stream_id, err_msg)
+                        
                         del self.msg_queues[stream_id]
                         del self.threads[stream_id]
                     # Stream inactive for more than DataServer.INACTIVITY_STREAM_KILL?
@@ -410,19 +415,19 @@ class DataServer(object):
             # In this context, play is the same as resuming
             # from a pause; if not currently paused, no effect:
             cmd_queue.put('resume')
-            self.logInfo('Play stream %s:%s' % (self.get_source_id(cmd_queue), self.topic))
+            self.logInfo('Play stream %s:%s' % (self.get_source_id(cmd_queue), self.get_stream_id(cmd_queue)))
             return
         if cmd == 'pause':
             cmd_queue.put('pause')
-            self.logInfo('Pausing %s:%s' % (self.get_source_id(cmd_queue), self.topic))
+            self.logInfo('Pausing %s:%s' % (self.get_source_id(cmd_queue), self.get_stream_id(cmd_queue)))
             return
         elif cmd == 'resume':
             cmd_queue.put('resume')
-            self.logInfo( 'Resuming %s:%s' % (self.get_source_id(cmd_queue), self.topic))
+            self.logInfo( 'Resuming %s:%s' % (self.get_source_id(cmd_queue), self.get_stream_id(cmd_queue)))
             return
         elif cmd == 'stop':
             cmd_queue.put('stop')
-            self.logInfo('Received stop %s:%s' % (self.get_source_id(cmd_queue), self.topic))
+            self.logInfo('Received stop %s:%s' % (self.get_source_id(cmd_queue), self.get_stream_id(cmd_queue)))
             return
         elif cmd == 'changeSpeed':
             try:
@@ -435,7 +440,7 @@ class DataServer(object):
                 self.returnError(stream_id, err_msg)
                 return
             else:
-                self.logInfo('Changing speed for %s:%s to %s' % (self.get_source_id(cmd_queue), self.topic, new_speed))
+                self.logInfo('Changing speed for %s:%s to %s' % (self.get_source_id(cmd_queue), self.get_stream_id(cmd_queue), new_speed))
                 cmd_queue.put('changeSpeed,%s' % new_speed)
                 return
         elif cmd == 'restart':
@@ -483,7 +488,6 @@ class DataServer(object):
             # will be fed to the stream-sending thread:
             cmd_queue = QueueWithEndpoint()
             self.msg_queues[stream_id] = cmd_queue
-            self.topic = stream_id
 
             # Create a new thread to feed the stream back to the client:
             try:
@@ -534,6 +538,17 @@ class DataServer(object):
         :type queue: QueueWithEndpoint
         '''
         return queue.endpoint.source_id
+
+    def get_stream_id(self, queue):
+        '''
+        Given a QueueWithEndpoint instance, grab the
+        thread that listens to that queue, and ask it
+        for the stream id to which it is serving out.
+        
+        :param queue: queue to the thread whose stream id is sought.
+        :type queue: QueueWithEndpoint
+        '''
+        return queue.endpoint.stream_id
 
 
     def create_list_source_info(self):
