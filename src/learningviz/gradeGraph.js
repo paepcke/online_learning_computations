@@ -586,7 +586,7 @@ function gradeCharter() {
 
 		// Add html for the table header:
 		for (var i=0; i<partsStats.length; i++) {
-			tableHtml += `<th>Part${i}</th>`
+			tableHtml += `<th>Part${i+1}</th>`
 		}
 		// Close the header row:
 		tableHtml += `</tr>
@@ -821,7 +821,7 @@ function gradeCharter() {
 				// Remember the info about this new problem:
 				newProblemObjs.push(gradeObj);
 				var haveNewProbId = true;
-			} else {
+			} else { // We saw this problem before; update the stats
 				prevNumAttempts = my.probStats[probId].numAttempts;
 				my.probStats[probId].numAttempts += newNumAttempts;
 				// Update earliest/latest submit dates for this
@@ -839,7 +839,7 @@ function gradeCharter() {
 			// were needed for each part (for median computation):
 			if (partsCorrectness !== null) {
 				for (var i=0; i<partsCorrectness.length; i++) {
-					if (partsCorrectness === '+') {
+					if (partsCorrectness[i] === '+') {
 
 						// One more learner got part i correct (no matter how many tries):
 						my.probStats[probId].partsCorrectness[i] += 1;
