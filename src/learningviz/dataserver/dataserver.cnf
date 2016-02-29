@@ -17,6 +17,7 @@
 [CSVFiles]
 compilers : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs140Grades.csv
 databases : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs145Grades.csv
+medstats  : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/medStatsGrades.csv
 
 [MySQLQueries]
 
@@ -37,7 +38,7 @@ databases : $HOME/Data/CustomExcerpts/AnonGradesForBarchartStreams/cs145Grades.c
 # as long as all lines beyond the first are indented at least one column
 # further than the first line.
 
-compilers : Grades for compiler course Spring 2014
-databases: Grades for original un-partitioned database course
-
+compilers : Grades for Compilers; Spring 2014.
+databases : Grades for original un-partitioned database course.
+medstats  : Grades for Statistics in Medicin; summer 2013.
 

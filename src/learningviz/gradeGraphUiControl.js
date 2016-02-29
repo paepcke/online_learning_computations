@@ -281,6 +281,25 @@ function GradeVizUiController() {
 		my.bus.setMsgCallback(my.gradeReceiver);
 		my.attachAllEventListeners();
 		my.getAvailableSources();
+		// Check whether a prior reload() left post-mortem
+		// instructions for a stream to apply to. Happens
+		// when user hits a new subscribe button while another
+		// susbcribe is going on:
+		
+		if(typeof(Storage) !== "undefined") {
+			// Browser has support for local and session storage:
+			var initialSourceId = sessionStorage.initialSourceId;
+			if (typeof initialSourceId !== 'undefined') {
+				// Ensure that we don't init stream each time
+				// user reloads before killing the browser tab:
+				sessionStorage.removeItem('initialSourceId');
+				// Subscribe to the stream:
+				my.bus.publish(my.makeDatapumpRequest("initStream", {"sourceId" : initialSourceId}),
+							   my.datapumpControlTopic,
+							   {"syncCallback" : my.subscriptionReceipt}
+				);
+			}
+		}
 	}
 
 	/*---------------------------------
@@ -358,24 +377,37 @@ function GradeVizUiController() {
 					// nothing to do:
 					return;
 				}
+				// Turn all subscribe buttons into their inactive state:
+				my.deactivateSubscribeButtons();
+
 				// Are we currently streaming another topic?
-				if (my.currStreamId !== null) {
+				if (my.currStreamId !== null && typeof my.currStreamId !== 'undefined') {
 				   var abort = window.confirm(`Currently subscribed to '${my.currSourceId}'; abort that chart and underlying subscription?`)
 				   if (abort) {
+					   // Currently subscribed to a stream:
 					   my.unsubscribe(my.currSourceId);
+					   // We'll reload the page to enusure that all
+					   // data structures are set up correctly. But
+					   // before reloading the page, remember that 
+					   // after reload the new stream should be subscribed
+					   // to:
+					   if (typeof Storage !== 'undefined') {
+						   sessionStorage.initialSourceId = sourceId;
+					   }
+					   // Wipe out all state and start over. The kickoff()
+					   // method will immediately subscribe to the new source:
+					   location.reload();
 				   } else {
 					   return;
 				   }
+				} else {
+					// No stream currently subscribed to, subscribe now:
+					my.bus.publish(my.makeDatapumpRequest("initStream", {"sourceId" : sourceId}),
+							my.datapumpControlTopic,
+							{"syncCallback" : my.subscriptionReceipt}
+					);
 				}
-				// Turn all subscribe buttons into their inactive state:
-				my.deactivateSubscribeButtons();
-				
-				// Subscribe to the topic for which this button stands:
-				my.bus.publish(my.makeDatapumpRequest("initStream", {"sourceId" : sourceId}),
-							   my.datapumpControlTopic,
-							   {"syncCallback" : my.subscriptionReceipt}
-				);
-				})
+			})
 		}
 	}
 	
@@ -479,9 +511,9 @@ function GradeVizUiController() {
 	/**
 	 * Given a topic name, unsubscribes from it.
 	 * If topic is omitted, unsubscribes from my.currStreamId.
-	 * We currently only support one stream at a time in this
-	 * client. So the ability to unsubscribe from more than
-	 * one topic is irrelevant.
+	 * The stream from which we unsubscribe is also 
+	 * stopped, i.e. the data pump will be allowd to 
+	 * close the stream out.
 	 * 
 	 * :param topic: name of topic from which to unsubscribe. If
 	 * 				omitted, will unsubscribe from my.currStreamId.
@@ -492,6 +524,11 @@ function GradeVizUiController() {
 		if (typeof topic === 'undefined') {
 			topic = my.currStreamId;
 		}
+		// Tell the data pump that we are done
+		// with this stream:
+		
+		my.bus.publish(my.makeDatapumpRequest("stop", {"streamId" : my.currStreamId}),
+					   my.datapumpControlTopic);
 		my.bus.unsubscribeFromTopic(topic);
 		my.deactivateSubscribeButtons(topic);
 		my.currStreamId = null;

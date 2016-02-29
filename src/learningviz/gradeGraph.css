@@ -4,6 +4,8 @@
 				}
 .playerButtonGroup { display : table-cell;
                      margin-left : 100px;
+                     background : rgba(166,137,59,0.5);  /* Light tan */
+                     border-style : groove;
                    }
 
 .playerButton { 
@@ -11,7 +13,7 @@
 		width: 60px;
 		border: none;
 		cursor: pointer;
-		background-color : white;
+		background-color : rgba(166,137,59,0.0);  /* transparent */
 		margin-left : 10px;
 	      }
 	      
