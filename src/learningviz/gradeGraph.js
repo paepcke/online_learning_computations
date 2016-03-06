@@ -1198,7 +1198,7 @@ function gradeCharter() {
 		// entries (the domain) to the three colors:
 		my.achievementScale = d3.scale.ordinal()
 		     					.range(colors)
-		    					.domain(['Corrent on first try', 'Eventually correct', 'Global standard']);
+		    					.domain(['Correct on first try', 'Eventually correct', 'Global standard']);
 		
 		// Create the legend object:
 		my.achievementLegend = d3.svg.legend()
