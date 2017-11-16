@@ -316,39 +316,53 @@ class EngagementComputer(object):
             inVideoSession = False
             if self.courseToProfile is None:
                 # Profile all courses. Takes a loooong time.
-                # consider disallowing:
-                mysqlCmd = "SELECT * \
-		  	                FROM  (\
-		  	                	     SELECT course_display_name, \
-		  	                	            anon_screen_name, \
-		  	                	            time, \
-		  	                	            IF((event_type = 'play_video' OR event_type = 'stop_video' OR event_type = 'load_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0) AS isVideo \
-		  	                	     FROM Edx.EventXtract \
-		  	                	     WHERE isUserEvent(event_type) \
-		  	                    UNION ALL \
-		  	                        SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo \
-		  	                        FROM EdxForum.contents \
-		  	                      ) AS AllData\
-		  	                ORDER BY course_display_name, anon_screen_name, time;"              
+                # consider disallowing.
+                # The substring(event_type,-255) protects function
+                # isUserEvent() from event_type values larger than
+                # 255. We take the trailing 255, b/c sometimes
+                # the event is the last part of a long URL:
+                mysqlCmd = '''SELECT *
+		  	        FROM  (
+		  	        	SELECT course_display_name,
+		  	        	       anon_screen_name,
+		  	        	       time,
+		  	        	       IF((event_type = 'play_video' OR 
+                                                   event_type = 'stop_video' OR 
+                                                   event_type = 'load_video' OR 
+                                                   event_type = 'pause_video' OR 
+                                                   event_type = 'seek_video' OR 
+                                                   event_type = 'speed_change_video'),1,0) AS isVideo
+       	                	          FROM Edx.EventXtract 
+      	                	         WHERE isUserEvent(substring(event_type, -254))
+		  	                 UNION ALL
+                                         SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo
+                                           FROM EdxForum.contents
+                                       ) AS AllData
+                             ORDER BY course_display_name, anon_screen_name, time;'''
             else:
-                mysqlCmd = "SELECT * \
-		  	                FROM  (\
-		  	                	     SELECT course_display_name, \
-		  	                	            anon_screen_name, \
-		  	                	            time, \
-		  	                	            IF((event_type = 'play_video' OR event_type = 'stop_video' OR event_type = 'load_video' OR event_type = 'pause_video' OR event_type = 'seek_video' OR event_type = 'speed_change_video'),1,0) AS isVideo \
-		  	                	     FROM Edx.EventXtract \
-		  	                	     WHERE course_display_name = '%s'\
-		  	                          AND isUserEvent(event_type) \
-		  	                    UNION ALL \
-		  	                        SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo \
-		  	                        FROM EdxForum.contents \
-		  	                        WHERE course_display_name = '%s'\
-		  	                      ) AS AllData\
-		  	                ORDER BY course_display_name, anon_screen_name, time;" % (self.courseToProfile, self.courseToProfile)              
+                mysqlCmd = '''SELECT *
+		  	        FROM  (
+		  	                SELECT course_display_name,
+                                               anon_screen_name,
+                                               time,
+                                               IF((event_type = 'play_video' OR 
+                                                   event_type = 'stop_video' OR
+                                                   event_type = 'load_video' OR 
+                                                   event_type = 'pause_video' OR 
+                                                   event_type = 'seek_video' OR 
+                                                   event_type = 'speed_change_video'),1,0) AS isVideo
+                                          FROM Edx.EventXtract
+     	                	         WHERE course_display_name = '%s'
+  	  	                           AND isUserEvent(substring(event_type, -254))
+                                         UNION ALL
+                                         SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo
+		  	                   FROM EdxForum.contents
+		  	                  WHERE course_display_name = '%s'
+		  	               ) AS AllData
+                              ORDER BY course_display_name, anon_screen_name, time;''' % (self.courseToProfile, self.courseToProfile)
                 
             queryIterator = self.db.query(mysqlCmd)
-                
+                 
             for activityRecord in queryIterator:
                 if not queryEndTimeReported:
                     self.log('Query done in %s' % str(datetime.timedelta(seconds=(time.time() - queryStartTime))))
@@ -772,7 +786,7 @@ class EngagementComputer(object):
                     for lastDate in runtimeLookupDb.query("SELECT MAX(time) FROM Edx.EventXtract WHERE course_display_name = '%s';" % courseName):
                         # The (single) result is a on-tuple
                         # like: (datetime.datetime(2014, 8, 7, 3, 52, 15),):
-                        endDate = lastDate[0] 
+                        endDate = lastDate
             except (StopIteration, IndexError):
                 (startDate, endDate) = (None, None) 
             return (startDate, endDate) 
