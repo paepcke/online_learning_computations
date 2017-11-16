@@ -317,7 +317,7 @@ class EngagementComputer(object):
             if self.courseToProfile is None:
                 # Profile all courses. Takes a loooong time.
                 # consider disallowing.
-                # The substring(event_type,-255) protects function
+                # The right(event_type,254) protects function
                 # isUserEvent() from event_type values larger than
                 # 255. We take the trailing 255, b/c sometimes
                 # the event is the last part of a long URL:
@@ -333,7 +333,7 @@ class EngagementComputer(object):
                                                    event_type = 'seek_video' OR 
                                                    event_type = 'speed_change_video'),1,0) AS isVideo
        	                	          FROM Edx.EventXtract 
-      	                	         WHERE isUserEvent(substring(event_type, -254))
+      	                	         WHERE isUserEvent(right(event_type, 254))
 		  	                 UNION ALL
                                          SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo
                                            FROM EdxForum.contents
@@ -353,7 +353,7 @@ class EngagementComputer(object):
                                                    event_type = 'speed_change_video'),1,0) AS isVideo
                                           FROM Edx.EventXtract
      	                	         WHERE course_display_name = '%s'
-  	  	                           AND isUserEvent(substring(event_type, -254))
+  	  	                           AND isUserEvent(right(event_type, 254))
                                          UNION ALL
                                          SELECT course_display_name, EdxPrivate.idForum2Anon(forum_uid) AS anon_screen_name, created_at AS time, 0 AS isVideo
 		  	                   FROM EdxForum.contents
